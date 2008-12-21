@@ -19,6 +19,8 @@ with qw(
     KiokuDB::Backend::Role::Scan
     KiokuDB::Backend::Role::UnicodeSafe
     KiokuDB::Backend::Role::Query::Simple
+    KiokuDB::Backend::Role::Query::GIN
+    Search::GIN::Extract::Delegate
 );
 # KiokuDB::Backend::Role::TXN::Nested is not supported by many DBs
 # we don't really care though
@@ -49,6 +51,10 @@ has columns => (
     default => sub { [] },
 );
 
+has '+extract' => (
+    required => 0,
+);
+
 has sql_abstract => (
     isa => "SQL::Abstract",
     is  => "ro",
@@ -67,6 +73,23 @@ sub insert {
     my @rows = $self->entries_to_rows(@entries);
 
     $self->insert_rows(@rows);
+
+    # hopefully we're in a transaction, otherwise this totally sucks
+    if ( $self->extract ) {
+        my %gin_index;
+
+        foreach my $entry ( @entries ) {
+            my $id = $entry->id;
+            if ( $entry->deleted || !$entry->has_object ) {
+                $gin_index{$id} = [];
+            } else {
+                my $d = $entry->backend_data || $entry->backend_data({});
+                $gin_index{$id} = [ $self->extract_values( $entry->object, entry => $entry ) ];
+            }
+        }
+
+        $self->update_index(\%gin_index);
+    }
 }
 
 sub entries_to_rows {
@@ -112,6 +135,24 @@ sub insert_rows {
     }
 
     $sth->finish;
+}
+
+sub update_index {
+    my ( $self, $entries ) = @_;
+
+    my $d_sth = $self->dbh->prepare_cached("DELETE FROM gin_index WHERE id = ?");
+    my $i_sth = $self->dbh->prepare_cached("INSERT INTO gin_index (id, value) VALUES (?, ?)");
+
+    foreach my $id ( keys %$entries ) {
+        $d_sth->execute($id);
+
+        foreach my $value ( @{ $entries->{$id} } ) {
+            $i_sth->execute( $id, $value );
+        }
+    }
+
+    $i_sth->finish;
+    $d_sth->finish;
 }
 
 sub get {
@@ -164,7 +205,7 @@ sub clear {
 sub _select_stream {
     my ( $self, $sql, @bind ) = @_;
 
-    my $sth = $self->dbh->prepare_cached($sql);
+    my $sth = $self->dbh->prepare($sql);
 
     $sth->execute(@bind);
 
@@ -195,6 +236,47 @@ sub simple_search {
 
     $self->_select_stream("select data from entries $where_clause", @{ $proto }{ @bind } );
 }
+
+sub search {
+    my ( $self, $query, @args ) = @_;
+
+    my %args = (
+        distinct => $self->distinct,
+        @args,
+    );
+
+    my %spec = $query->extract_values($self);
+
+    my @v = @{ $spec{values} };
+
+    #if ( $spec{method} eq 'all' ) {
+        # make the DB ensure at least one key exists... count(gin_index.id) = @v ?
+    #}
+
+    $self->_select_stream("
+        select entries.data from entries, gin_index
+        where
+            entries.id = gin_index.id and
+            gin_index.value in (" . join(", ", map { '?' } @v) . ")
+        group by gin_index.id",
+        @v
+    );
+}
+
+sub fetch_entry { die "TODO" }
+
+sub remove_ids {
+    my ( $self, @ids ) = @_;
+
+    die "Deletion the GIN index is handled implicitly by BDB";
+}
+
+sub insert_entry {
+    my ( $self, $id, @keys ) = @_;
+
+    die "Insertion to the GIN index is handled implicitly by BDB";
+}
+
 
 __PACKAGE__->meta->make_immutable;
 
