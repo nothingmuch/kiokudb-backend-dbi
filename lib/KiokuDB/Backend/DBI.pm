@@ -223,7 +223,7 @@ sub insert_rows {
         $ins->execute( @{ $row }{@bind} );
     }
 
-    $del && $del->finish;
+    $del->finish if $del;
     $ins->finish;
 }
 
@@ -239,7 +239,7 @@ sub prepare_SQLite_insert {
 
     my @cols = ( keys %reserved_cols, keys %{ $self->_columns } );
 
-    my $sth = $self->dbh->prepare_cached("INSERT OR REPLACE INTO entries (" . join(", ", @cols) . ") VALUES (" . join(", ", map { '?' } @cols) . ")");
+    my $sth = $self->dbh->prepare_cached("INSERT OR REPLACE INTO entries (" . join(", ", @cols) . ") VALUES (" . join(", ", ('?') x @cols) . ")");
 
     return ( undef, $sth, @cols );
 }
@@ -249,7 +249,7 @@ sub prepare_mysql_insert {
 
     my @cols = ( keys %reserved_cols, keys %{ $self->_columns } );
 
-    my $sth = $self->dbh->prepare_cached("INSERT INTO entries (" . join(", ", @cols) . ") VALUES (" . join(", ", map { '?' } @cols) . ") ON DUPLICATE KEY UPDATE " . join(", ", map { "$_ = ?" } grep { $_ ne 'id' } @cols));
+    my $sth = $self->dbh->prepare_cached("INSERT INTO entries (" . join(", ", @cols) . ") VALUES (" . join(", ", ('?') x @cols) . ") ON DUPLICATE KEY UPDATE " . join(", ", map { "$_ = ?" } grep { $_ ne 'id' } @cols));
 
     return ( undef, $sth, @cols, grep { $_ ne 'id' } @cols );
 }
@@ -259,7 +259,7 @@ sub prepare_fallback_insert {
 
     my @cols = ( keys %reserved_cols, keys %{ $self->_columns } );
 
-    my $ins = $self->dbh->prepare_cached("INSERT INTO entries (" . join(", ", @cols) . ") VALUES (" . join(", ", map { '?' } @cols) . ")");
+    my $ins = $self->dbh->prepare_cached("INSERT INTO entries (" . join(", ", @cols) . ") VALUES (" . join(", ", ('?') x @cols) . ")");
 
     my $del = $self->dbh->prepare_cached("DELETE FROM entries WHERE id = ?");
 
@@ -287,9 +287,19 @@ sub update_index {
 sub get {
     my ( $self, @ids ) = @_;
 
-    my $entries = $self->dbh->selectall_hashref("select id, data from entries where id IN (" . join(", ", map { $self->dbh->quote($_) } @ids) . ")", "id");
+    my $sth = $self->dbh->prepare_cached("SELECT id, data FROM entries WHERE id IN (" . join(", ", ('?') x @ids) . ")");
+    $sth->execute(@ids);
 
-    return map { $self->deserialize($_->{data}) } @{ $entries }{@ids};
+    $sth->bind_columns( \( my $id, my $data ) );
+
+    my %entries;
+    while ( $sth->fetch ) {
+        $entries{$id} = $self->deserialize($data);
+    }
+
+    return if @ids != keys %entries; # ->rows only works after we're done
+
+    return @entries{@ids};
 }
 
 sub delete {
@@ -299,18 +309,29 @@ sub delete {
 
     if ( $self->extract ) {
         # FIXME rely on cascade delete?
-        $self->dbh->do("delete from gin_index where id IN (" . join(", ", map { $self->dbh->quote($_) } @ids) . ")");
+        my $sth = $self->dbh->prepare_cached("DELETE FROM gin_index WHERE id IN (" . join(", ", ('?') x @ids) . ")");
+        $sth->execute(@ids);
     }
 
-    $self->dbh->do("delete from entries where id IN (" . join(", ", map { $self->dbh->quote($_) } @ids) . ")");
+    my $sth = $self->dbh->prepare_cached("DELETE FROM entries WHERE id IN (" . join(", ", ('?') x @ids) . ")");
+    $sth->execute(@ids);
+
+    return;
 }
 
 sub exists {
     my ( $self, @ids ) = @_;
 
-    my $entries = $self->dbh->selectall_hashref("select id from entries where id IN (" . join(", ", map { $self->dbh->quote($_) } @ids) . ")", "id");
+    my %entries;
 
-    map { exists $entries->{$_} } @ids;
+    my $sth = $self->dbh->prepare_cached("SELECT id FROM entries WHERE id IN (" . join(", ", ('?') x @ids) . ")");
+    $sth->execute(@ids);
+
+    $sth->bind_columns( \( my $id ) );
+
+    $entries{$id} = undef while $sth->fetch;
+
+    map { exists $entries{$_} } @ids;
 }
 
 sub txn_do {
@@ -339,7 +360,7 @@ sub clear {
 sub _select_stream {
     my ( $self, $sql, @bind ) = @_;
 
-    my $sth = $self->dbh->prepare($sql);
+    my $sth = $self->dbh->prepare($sql); # can't prepare cached, we don't know when it will be done
 
     $sth->execute(@bind);
 
@@ -350,17 +371,17 @@ sub _select_stream {
 
 sub all_entries {
     my $self = shift;
-    $self->_select_stream("select data from entries");
+    $self->_select_stream("SELECT data FROM entries");
 }
 
 sub root_entries {
     my $self = shift;
-    $self->_select_stream("select data from entries where root");
+    $self->_select_stream("SELECT data FROM entries WHERE root");
 }
 
 sub child_entries {
     my $self = shift;
-    $self->_select_stream("select data from entries where not root");
+    $self->_select_stream("SELECT data FROM entries WHERE not root");
 }
 
 sub simple_search {
@@ -368,7 +389,7 @@ sub simple_search {
 
     my ( $where_clause, @bind ) = $self->sql_abstract->where($proto);
 
-    $self->_select_stream("select data from entries $where_clause", @{ $proto }{ @bind } );
+    $self->_select_stream("SELECT data FROM entries $where_clause", @{ $proto }{ @bind } );
 }
 
 sub search {
@@ -386,15 +407,15 @@ sub search {
     if ( $spec{method} eq 'all' and @v > 1) {
         # for some reason count(id) = ? doesn't work
         return $self->_select_stream("
-            select data from entries where id in (
-                select id from gin_index where value in (" . join(", ", map { '?' } @v) . ") group by id having count(id) = " . scalar(@v) . "
+            SELECT data FROM entries WHERE id IN (
+                SELECT id FROM gin_index WHERE value IN (" . join(", ", ('?') x @v) . ") GROUP BY id HAVING COUNT(id) = " . scalar(@v) . "
             )",
             @v
         );
     } else {
         return $self->_select_stream("
-            select data from entries where id in (
-                select id from gin_index where value in (" . join(", ", map { '?' } @v) . ")
+            SELECT data FROM entries WHERE id IN (
+                SELECT DISTINCT id FROM gin_index WHERE value IN (" . join(", ", ('?') x @v) . ")
             )",
             @v
         );
@@ -406,13 +427,13 @@ sub fetch_entry { die "TODO" }
 sub remove_ids {
     my ( $self, @ids ) = @_;
 
-    die "Deletion the GIN index is handled implicitly by BDB";
+    die "Deletion the GIN index is handled implicitly";
 }
 
 sub insert_entry {
     my ( $self, $id, @keys ) = @_;
 
-    die "Insertion to the GIN index is handled implicitly by BDB";
+    die "Insertion to the GIN index is handled implicitly";
 }
 
 
