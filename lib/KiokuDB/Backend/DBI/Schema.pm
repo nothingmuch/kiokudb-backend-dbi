@@ -29,14 +29,14 @@ $gin_index->add_columns(
 );
 
 #$entries->sqlt_deploy_callback(sub {
-sub KiokuDB::Backend::DBI::Schema::Entries::sql_deploy_hook {
+sub KiokuDB::Backend::DBI::Schema::Entries::sqlt_deploy_hook {
   my ($source, $sqlt_table) = @_;
 
   $sqlt_table->extra->{mysql_table_type} = "InnoDB";
 }
 
 #$gin_index->sqlt_deploy_callback(sub {
-sub KiokuDB::Backend::DBI::Schema::GIN_Index::sql_deploy_hook {
+sub KiokuDB::Backend::DBI::Schema::GIN_Index::sqlt_deploy_hook {
   my ($source, $sqlt_table) = @_;
 
   $sqlt_table->extra->{mysql_table_type} = "InnoDB";

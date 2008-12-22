@@ -31,17 +31,17 @@ my $entry = KiokuDB::Entry->new(
 
 my $row = $b->entry_to_row($entry);
 
-is( $row->{id}, $entry->id, "ID" );
+is( $row->[0], $entry->id, "ID" );
 
-is( $row->{class}, $entry->class, "class" );
+is( $row->[1], $entry->class, "class" );
 
-ok( $row->{root}, "root entry" );
+ok( $row->[2], "root entry" );
 
-like( $row->{data}, qr/vey/, "data" );
+like( $row->[4], qr/vey/, "data" );
 
-ok( exists $row->{oi}, "extracted column" );
+ok( exists $row->[-1], "extracted column" );
 
-is( $row->{oi}, "vey", "column data" );
+is( $row->[-1], "vey", "column data" );
 
 $b->txn_do(sub {
     $b->insert( $entry );

@@ -29,14 +29,9 @@ with qw(
 # KiokuDB::Backend::Role::TXN::Nested is not supported by many DBs
 # we don't really care though
 
-my %std_cols = ( map { $_ => 1 } qw(
-    id
-    tied
-    class
-    root
-) );
-
-my %reserved_cols = ( %std_cols, data => 1 );
+my @std_cols = qw(id class root tied);
+my @reserved_cols = ( @std_cols, 'data' );
+my %reserved_cols = ( map { $_ => 1 } @reserved_cols );
 
 subtype ValidColumnName, as Str, where { not exists $reserved_cols{$_} };
 
@@ -119,6 +114,30 @@ sub _build__columns {
     return { map { $_ => $rs->column_info($_)->{extract} || undef } @user_cols };
 }
 
+has _ordered_columns => (
+    isa => "ArrayRef",
+    is  => "ro",
+    lazy_build => 1,
+);
+
+sub _build__ordered_columns {
+    my $self = shift;
+    return [ @reserved_cols, sort keys %{ $self->_columns } ];
+}
+
+has _column_order => (
+    isa => "HashRef",
+    is  => "ro",
+    lazy_build => 1,
+);
+
+sub _build__column_order {
+    my $self = shift;
+
+    my $cols = $self->_ordered_columns;
+    return { map { $cols->[$_] => $_ } 0 .. $#$cols }
+}
+
 has '+extract' => (
     required => 0,
 );
@@ -187,43 +206,69 @@ sub entries_to_rows {
 sub entry_to_row {
     my ( $self, $entry ) = @_;
 
-    my %row = map { $_ => $entry->$_ } keys %std_cols;
+    my @row = (
+        $entry->id,
+        $entry->class,
+        $entry->root ? 1 : 0,
+        $entry->tied,
+        $self->serialize($entry),
+    );
 
-    for ( values %row ) {
-        $_ = 0 unless defined;
-    }
+    my $cols = $self->_columns;
 
-    $row{data} = $self->serialize($entry);
-
-    if ( ref( my $data = $entry->data ) eq 'HASH' ) {
-        my $cols = $self->_columns;
-        foreach my $column ( keys %$cols ) {
-            if ( my $extract = $cols->{$column} ) {
-                if ( my $obj = $entry->object ) {
-                    $row{$column} = $obj->$extract($column);
-                }
-            } else {
-                if ( exists $data->{$column} and not ref( my $value = $data->{$column} ) ) {
-                    $row{$column} = $value;
-                }
+    foreach my $column ( sort keys %$cols ) {
+        if ( my $extract = $cols->{$column} ) {
+            if ( my $obj = $entry->object ) {
+                push @row, $obj->$extract($column);
+                next;
+            }
+        } elsif ( ref( my $data = $entry->data ) eq 'HASH' ) {
+            if ( exists $data->{$column} and not ref( my $value = $data->{$column} ) ) {
+                push @row, $value;
+                next;
             }
         }
+
+        push @row, undef;
     }
 
-    return \%row;
+    return \@row;
 }
 
 sub insert_rows {
     my ( $self, @rows ) = @_;
 
-    my ( $del, $ins, @bind ) = $self->prepare_insert();
+    my ( $del, $ins, @cols ) = $self->prepare_insert();
 
-    foreach my $row ( @rows ) {
-        $del->execute( $row->{id} ) if $del;
-        $ins->execute( @{ $row }{@bind} );
+    if ( $del ) {
+        my $del_sth = $self->dbh->prepare("DELETE FROM entries WHERE id IN (" . join(", ", ('?') x @rows ) . ")");
+        $del_sth->execute(map { $_->[0] } @rows);
+        $del_sth->finish;
     }
 
-    $del->finish if $del;
+    my $bind_attributes = $self->storage->source_bind_attributes($self->schema->source("entries"));
+
+    my $i = 1;
+
+    my $ord = $self->_column_order;
+
+    foreach my $column_name (@cols) {
+        my $attributes = {};
+
+        if( $bind_attributes ) {
+            $attributes = $bind_attributes->{$column_name}
+            if defined $bind_attributes->{$column_name};
+        }
+
+        my @data = map { $_->[$ord->{$column_name}] } @rows;
+
+        $ins->bind_param_array( $i, \@data, $attributes );
+
+        $i++;
+    }
+
+    my $rv = $ins->execute_array({ArrayTupleStatus => []});
+
     $ins->finish;
 }
 
@@ -237,9 +282,9 @@ sub prepare_insert {
 sub prepare_SQLite_insert {
     my $self = shift;
 
-    my @cols = ( keys %reserved_cols, keys %{ $self->_columns } );
+    my @cols = @{ $self->_ordered_columns };
 
-    my $sth = $self->dbh->prepare_cached("INSERT OR REPLACE INTO entries (" . join(", ", @cols) . ") VALUES (" . join(", ", ('?') x @cols) . ")");
+    my $sth = $self->dbh->prepare("INSERT OR REPLACE INTO entries (" . join(", ", @cols) . ") VALUES (" . join(", ", ('?') x @cols) . ")");
 
     return ( undef, $sth, @cols );
 }
@@ -247,23 +292,32 @@ sub prepare_SQLite_insert {
 sub prepare_mysql_insert {
     my $self = shift;
 
-    my @cols = ( keys %reserved_cols, keys %{ $self->_columns } );
+    my @cols = @{ $self->_ordered_columns };
 
-    my $sth = $self->dbh->prepare_cached("INSERT INTO entries (" . join(", ", @cols) . ") VALUES (" . join(", ", ('?') x @cols) . ") ON DUPLICATE KEY UPDATE " . join(", ", map { "$_ = ?" } grep { $_ ne 'id' } @cols));
+    my $sth = $self->dbh->prepare("INSERT INTO entries (" . join(", ", @cols) . ") VALUES (" . join(", ", ('?') x @cols) . ") ON DUPLICATE KEY UPDATE " . join(", ", map { "$_ = ?" } @cols[1 .. $#cols]));
 
-    return ( undef, $sth, @cols, grep { $_ ne 'id' } @cols );
+    return ( undef, $sth, @cols, @cols[1 .. $#cols] );
+}
+
+sub prepare_Pg_insert {
+    my $self = shift;
+
+    my ( $del, $ins, @bind ) = $self->prepare_fallback_insert;
+
+    use DBD::Pg qw(PG_BYTEA);
+    $ins->bind_param(5, undef, { pg_type => PG_BYTEA });
+
+    return ( $del, $ins, @bind );
 }
 
 sub prepare_fallback_insert {
     my $self = shift;
 
-    my @cols = ( keys %reserved_cols, keys %{ $self->_columns } );
+    my @cols = @{ $self->_ordered_columns };
 
-    my $ins = $self->dbh->prepare_cached("INSERT INTO entries (" . join(", ", @cols) . ") VALUES (" . join(", ", ('?') x @cols) . ")");
+    my $ins = $self->dbh->prepare("INSERT INTO entries (" . join(", ", @cols) . ") VALUES (" . join(", ", ('?') x @cols) . ")");
 
-    my $del = $self->dbh->prepare_cached("DELETE FROM entries WHERE id = ?");
-
-    return ( $del, $ins, @cols );
+    return ( 1, $ins, @cols );
 }
 
 sub update_index {
@@ -290,7 +344,13 @@ sub get {
     my $sth = $self->dbh->prepare_cached("SELECT id, data FROM entries WHERE id IN (" . join(", ", ('?') x @ids) . ")");
     $sth->execute(@ids);
 
-    $sth->bind_columns( \( my $id, my $data ) );
+    $sth->bind_columns( \my ( $id, $data ) );
+
+    # not actually necessary but i'm keeping it around for reference:
+    #my ( $id, $data );
+    #use DBD::Pg qw(PG_BYTEA);
+    #$sth->bind_col(1, \$id);
+    #$sth->bind_col(2, \$data, { pg_type => PG_BYTEA });
 
     my %entries;
     while ( $sth->fetch ) {
