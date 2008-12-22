@@ -384,11 +384,9 @@ sub search {
     #}
 
     $self->_select_stream("
-        select entries.data from entries, gin_index
-        where
-            entries.id = gin_index.id and
-            gin_index.value in (" . join(", ", map { '?' } @v) . ")
-        group by gin_index.id",
+        select data from entries where id in (
+            select id from gin_index where value in (" . join(", ", map { '?' } @v) . ")
+        )",
         @v
     );
 }

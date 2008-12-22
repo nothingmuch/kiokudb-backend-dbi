@@ -16,7 +16,7 @@ $entries->add_columns(
     data => { data_type => "blob", is_nullable => 0 },
     class => { data_type => "varchar", is_nullable => 1 },
     root => { data_type => "boolean", is_nullable => 0 },
-    tied => { data_type => "boolean", is_nullable => 0 },
+    tied => { data_type => "varchar", size => length("SCALAR"), is_nullable => 1 },
 );
 
 $entries->set_primary_key("id");
@@ -28,8 +28,16 @@ $gin_index->add_columns(
     value => { data_type => "varchar" },
 );
 
+$entries->sqlt_deploy_callback(sub {
+  my ($source, $sqlt_table) = @_;
+
+  $sqlt_table->extra->{mysql_table_type} = "InnoDB";
+});
+
 $gin_index->sqlt_deploy_callback(sub {
   my ($source, $sqlt_table) = @_;
+
+  $sqlt_table->extra->{mysql_table_type} = "InnoDB";
 
   $sqlt_table->add_index( name => 'gin_index_ids', fields => ['id'] )
       or die $sqlt_table->error;
