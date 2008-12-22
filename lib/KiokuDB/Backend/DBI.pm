@@ -381,16 +381,22 @@ sub search {
 
     my @v = @{ $spec{values} };
 
-    #if ( $spec{method} eq 'all' ) {
-        # make the DB ensure at least one key exists... count(gin_index.id) = @v ?
-    #}
-
-    $self->_select_stream("
-        select data from entries where id in (
-            select id from gin_index where value in (" . join(", ", map { '?' } @v) . ")
-        )",
-        @v
-    );
+    if ( $spec{method} eq 'all' and @v > 1) {
+        # for some reason count(id) = ? doesn't work
+        return $self->_select_stream("
+            select data from entries where id in (
+                select id from gin_index where value in (" . join(", ", map { '?' } @v) . ") group by id having count(id) = " . scalar(@v) . "
+            )",
+            @v
+        );
+    } else {
+        return $self->_select_stream("
+            select data from entries where id in (
+                select id from gin_index where value in (" . join(", ", map { '?' } @v) . ")
+            )",
+            @v
+        );
+    }
 }
 
 sub fetch_entry { die "TODO" }
