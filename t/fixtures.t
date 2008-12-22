@@ -1,6 +1,12 @@
 #!/usr/bin/perl
 
-use Test::More 'no_plan';
+use Test::More;
+
+BEGIN {
+    plan skip_all => "DBD::SQLite is required" unless eval { require DBI; require DBD::SQLite };
+    plan 'no_plan';
+}
+
 use Test::TempDir;
 
 use ok 'KiokuDB';
