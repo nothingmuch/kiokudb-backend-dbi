@@ -12,6 +12,7 @@ WriteMakefile(
     PL_FILES     => { },
     PREREQ_PM    => {
         'Moose' => 0,
+        'MooseX::Types' => '0.08',
         'MooseX::Types::Moose' => 0,
 
         'KiokuDB' => '0.10',
