@@ -1,0 +1,5 @@
+0.02
+    - Skip tests if DBD::SQLite is not available
+
+0.01
+    - Initial release
