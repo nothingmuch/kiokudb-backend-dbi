@@ -5,9 +5,11 @@ use Moose;
 
 use MooseX::Types -declare => [qw(ValidColumnName)];
 
-use MooseX::Types::Moose qw(ArrayRef Str);
+use MooseX::Types::Moose qw(ArrayRef HashRef Str);
 
 use Data::Stream::Bulk::DBI;
+
+use KiokuDB::Backend::DBI::Schema;
 
 use namespace::clean -except => 'meta';
 
@@ -36,20 +38,82 @@ my %reserved_cols = ( %std_cols, data => 1 );
 
 subtype ValidColumnName, as Str, where { not exists $reserved_cols{$_} };
 
+sub new_from_dsn {
+    my ( $self, $dsn, @args ) = @_;
+    $self->new( dsn => "dbi:$dsn", @args );
+}
+
 has '+utf8' => ( default => 1 );
+
+has [qw(dsn user password)] => (
+    isa => "Str",
+    is  => "ro",
+);
+
+has dbi_attrs => (
+    isa => HashRef,
+    is  => "ro",
+);
+
+has connect_info => (
+    isa => ArrayRef,
+    is  => "ro",
+    lazy_build => 1,
+);
+
+sub _build_connect_info {
+    my $self = shift;
+
+    return [ $self->dsn, $self->user, $self->password, $self->dbi_attrs ];
+}
+
+has schema => (
+    isa => "DBIx::Class::Schema",
+    is  => "ro",
+    lazy_build => 1,
+    handles => [qw(deploy)],
+);
+
+sub _build_schema {
+    my $self = shift;
+
+    my $schema = KiokuDB::Backend::DBI::Schema->clone;
+
+    $schema->source("entries")->add_columns(@{ $self->columns });
+
+    $schema->connect(@{ $self->connect_info });
+}
 
 has storage => (
     isa => "DBIx::Class::Storage::DBI",
     is  => "rw",
-    required => 1,
-    handles  => [qw(dbh dbh_do)],
+    lazy_build => 1,
+    handles    => [qw(dbh dbh_do)],
 );
 
+sub _build_storage { shift->schema->storage }
+
 has columns => (
-    isa => ArrayRef[ValidColumnName],
+    isa => ArrayRef[ValidColumnName|HashRef],
     is  => "ro",
     default => sub { [] },
 );
+
+has _columns => (
+    isa => HashRef,
+    is  => "ro",
+    lazy_build => 1,
+);
+
+sub _build__columns {
+    my $self = shift;
+
+    my $rs = $self->schema->source("entries");
+
+    my @user_cols = grep { not exists $reserved_cols{$_} } $rs->columns;
+
+    return { map { $_ => $rs->column_info($_)->{extract} || undef } @user_cols };
+}
 
 has '+extract' => (
     required => 0,
@@ -110,10 +174,16 @@ sub entry_to_row {
     $row{data} = $self->serialize($entry);
 
     if ( ref( my $data = $entry->data ) eq 'HASH' ) {
-        foreach my $column ( @{ $self->columns } ) {
-            # FIXME pluggable handlers
-            if ( exists $data->{$column} and not ref( my $value = $data->{$column} ) ) {
-                $row{$column} = $value;
+        my $cols = $self->_columns;
+        foreach my $column ( keys %$cols ) {
+            if ( my $extract = $cols->{$column} ) {
+                if ( my $obj = $entry->object ) {
+                    $row{$column} = $obj->$extract($column);
+                }
+            } else {
+                if ( exists $data->{$column} and not ref( my $value = $data->{$column} ) ) {
+                    $row{$column} = $value;
+                }
             }
         }
     }
@@ -124,7 +194,7 @@ sub entry_to_row {
 sub insert_rows {
     my ( $self, @rows ) = @_;
 
-    my @cols = ( keys %reserved_cols, @{ $self->columns } );
+    my @cols = ( keys %reserved_cols, keys %{ $self->_columns } );
 
     my $sth = $self->dbh->prepare_cached("INSERT OR REPLACE INTO entries (" . join(", ", @cols) . ") VALUES (" . join(", ", map { '?' } @cols) . ")");
     #my $sth = $self->dbh->prepare_cached("INSERT INTO entries (" . join(", ", @cols) . ") VALUES (" . join(", ", map { '?' } @cols) . ") ON DUPLICATE KEY UPDATE " . join(", ", map { "$_ = ?" } grep { $_ ne 'id' } @cols));
@@ -167,6 +237,11 @@ sub delete {
     my ( $self, @ids_or_entries ) = @_;
 
     my @ids = map { ref($_) ? $_->id : $_ } @ids_or_entries;
+
+    if ( $self->extract ) {
+        # FIXME rely on cascade delete?
+        $self->dbh->do("delete from gin_index where id IN (" . join(", ", map { $self->dbh->quote($_) } @ids) . ")");
+    }
 
     $self->dbh->do("delete from entries where id IN (" . join(", ", map { $self->dbh->quote($_) } @ids) . ")");
 }
