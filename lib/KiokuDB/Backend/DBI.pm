@@ -45,6 +45,8 @@ sub new_from_dsn {
     $self->new( dsn => "dbi:$dsn", @args );
 }
 
+sub BUILD { shift->dbh } # connect early
+
 has '+utf8' => ( default => 1 );
 
 has [qw(dsn user password)] => (
