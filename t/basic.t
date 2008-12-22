@@ -37,7 +37,7 @@ is( $row->{class}, $entry->class, "class" );
 
 ok( $row->{root}, "root entry" );
 
-like( $row->{data}, qr/oi.*vey/, "JSON data" );
+like( $row->{data}, qr/vey/, "data" );
 
 ok( exists $row->{oi}, "extracted column" );
 
