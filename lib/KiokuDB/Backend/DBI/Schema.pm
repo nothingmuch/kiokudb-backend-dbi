@@ -9,7 +9,7 @@ extends qw(DBIx::Class::Schema);
 
 use DBIx::Class::ResultSource::Table;
 
-my $entries = DBIx::Class::ResultSource::Table->new({ name => "entries" });
+my $entries = DBIx::Class::ResultSource::Table->new({ name => "entries", result_class => "KiokuDB::Backend::DBI::Schema::Entries" });
 
 $entries->add_columns(
     id => { data_type => "varchar" },
@@ -21,20 +21,22 @@ $entries->add_columns(
 
 $entries->set_primary_key("id");
 
-my $gin_index = DBIx::Class::ResultSource::Table->new({ name => "gin_index" });
+my $gin_index = DBIx::Class::ResultSource::Table->new({ name => "gin_index", result_class => "KiokuDB::Backend::DBI::Schema::GIN_Index" });
 
 $gin_index->add_columns(
     id => { data_type => "varchar" }, # is is_foreign_key good for anythin?
     value => { data_type => "varchar" },
 );
 
-$entries->sqlt_deploy_callback(sub {
+#$entries->sqlt_deploy_callback(sub {
+sub KiokuDB::Backend::DBI::Schema::Entries::sql_deploy_hook {
   my ($source, $sqlt_table) = @_;
 
   $sqlt_table->extra->{mysql_table_type} = "InnoDB";
-});
+}
 
-$gin_index->sqlt_deploy_callback(sub {
+#$gin_index->sqlt_deploy_callback(sub {
+sub KiokuDB::Backend::DBI::Schema::GIN_Index::sql_deploy_hook {
   my ($source, $sqlt_table) = @_;
 
   $sqlt_table->extra->{mysql_table_type} = "InnoDB";
@@ -44,7 +46,7 @@ $gin_index->sqlt_deploy_callback(sub {
 
   $sqlt_table->add_index( name => 'gin_index_values', fields => ['value'] )
       or die $sqlt_table->error;
-});
+}
 
 __PACKAGE__->register_source( entries => $entries );
 __PACKAGE__->register_source( gin_index => $gin_index );
