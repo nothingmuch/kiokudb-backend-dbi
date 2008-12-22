@@ -389,7 +389,7 @@ sub simple_search {
 
     my ( $where_clause, @bind ) = $self->sql_abstract->where($proto);
 
-    $self->_select_stream("SELECT data FROM entries $where_clause", @{ $proto }{ @bind } );
+    $self->_select_stream("SELECT data FROM entries $where_clause", @bind);
 }
 
 sub search {

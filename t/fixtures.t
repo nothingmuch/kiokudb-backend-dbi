@@ -25,10 +25,14 @@ foreach my $dsn (
     my $dir = KiokuDB->connect(
         @$dsn,
         columns => [
-            oi => {
+            name => {
                 is_nullable => 1,
                 data_type   => "varchar",
-            }
+            },
+            age => {
+                is_nullable => 1,
+                data_type   => "integer",
+            },
         ],
         extract => Search::GIN::Extract::Class->new,
     );
