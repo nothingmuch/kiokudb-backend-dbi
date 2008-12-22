@@ -13,6 +13,8 @@ use KiokuDB::Backend::DBI::Schema;
 
 use namespace::clean -except => 'meta';
 
+our $VERSION = "0.01";
+
 with qw(
     KiokuDB::Backend
     KiokuDB::Backend::Serialize::JSON
