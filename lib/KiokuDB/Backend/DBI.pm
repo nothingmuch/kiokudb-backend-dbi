@@ -411,3 +411,118 @@ __PACKAGE__->meta->make_immutable;
 __PACKAGE__
 
 __END__
+
+=pod
+
+=head1 NAME
+
+KiokuDB::Backend::DBI - L<DBI> backend for L<KiokuDB>
+
+=head1 SYNOPSIS
+
+    my $dir = KiokuDB->connect(
+        "dbi:SQLite:dbname=foo",
+        columns => [
+            # specify extra columns for the 'entries' table
+            # in the same format you pass to DBIC's add_columns
+
+            name => {
+                data_type => "varchar",
+                is_nullable => 1, # probably important
+            },
+        ],
+    );
+
+    $dir->search({ name => "foo" }); # SQL::Abstract
+
+=head1 DESCRIPTION
+
+This backend for L<KiokuDB> leverages existing L<DBI> accessible databases.
+
+The schema is based on two tables, C<entries> and C<gin_index> (the latter is
+only used if a L<Search::GIN> extractor is specified).
+
+The C<entries> table has two main columns, C<id> and C<data> (currently in
+JSPON format, in the future the format will be pluggable), and additional user
+specified columns.
+
+The user specified columns are extracted from inserted objects using a callback
+(or just copied for simple scalars), allowing SQL where clauses to be used for
+searching.
+
+=head1 COLUMN EXTRACTIONS
+
+The columns are specified using a L<DBIx::Class::ResultSource> instance.
+
+One additional column info parameter is used, C<extract>, which is called as a
+method on the inserted object with the column name as the only argument. The
+return value from this callback will be used to populate the column.
+
+If the column extractor is omitted then the column will contain a copy of the
+entry data key by the same name, if it is a plain scalar. Otherwise the column
+will be C<NULL>.
+
+These columns are only used for lookup purposes, only C<data> is consulted when
+loading entries.
+
+=head1 SUPPORTED DATABASES
+
+This driver has been tested with MySQL 5 (4.1 should be the minimal supported
+version), SQLite 3, and PostgresSQL 8.3.
+
+=head1 ATTRIBUTES
+
+=over 4
+
+=item schema
+
+Created automatically.
+
+This is L<DBIx::Class::Schema> object that is used for schema deployment,
+connectivity and transaction handling.
+
+=item connect_info
+
+An array reference whose contents are passed to L<DBIx::Class::Schema/connect>.
+
+If omitted will be created from the attrs C<dsn>, C<user>, C<password> and
+C<dbi_attrs>.
+
+=item dsn
+
+=item user
+
+=item password
+
+=item dbi_attrs
+
+Convenience attrs for connecting using L<KiokuDB/connect>.
+
+User in C<connect_info>'s builder.
+
+=item columns
+
+Additional columns, see L</"COLUMN EXTRACTIONS">.
+
+=back
+
+=head1 METHODS
+
+See L<KiokuDB::Backend> and the various roles for more info.
+
+=over 4
+
+=item deploy
+
+Calls L<DBIx::Class::Schema/deploy>.
+
+Deployment to MySQL requires that you specify something like:
+
+    $dir->backend->deploy({ producer_args => { mysql_version => 4 } });
+
+because MySQL versions before 4 did not have support for boolean types, and the
+schema emitted by L<SQL::Translator> will not work with the queries used.
+
+=back
+
+=over
