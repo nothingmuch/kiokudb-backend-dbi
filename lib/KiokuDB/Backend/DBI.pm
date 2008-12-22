@@ -131,6 +131,24 @@ sub _build_sql_abstract {
     SQL::Abstract->new;
 }
 
+has prepare_insert_method => (
+    isa => "Str|CodeRef",
+    is  => "ro",
+    lazy_build => 1,
+);
+
+sub _build_prepare_insert_method {
+    my $self = shift;
+
+    my $name = $self->storage->dbh->{Driver}{Name};
+
+    if ( $self->can("prepare_${name}_insert") ) {
+        return "prepare_${name}_insert";
+    } else {
+        "prepare_fallback_insert";
+    }
+}
+
 sub insert {
     my ( $self, @entries ) = @_;
 
@@ -194,17 +212,54 @@ sub entry_to_row {
 sub insert_rows {
     my ( $self, @rows ) = @_;
 
+    my ( $del, $ins, @bind ) = $self->prepare_insert();
+
+    foreach my $row ( @rows ) {
+        $del->execute( $row->{id} ) if $del;
+        $ins->execute( @{ $row }{@bind} );
+    }
+
+    $del && $del->finish;
+    $ins->finish;
+}
+
+sub prepare_insert {
+    my $self = shift;
+
+    my $meth = $self->prepare_insert_method;
+    $self->$meth;
+}
+
+sub prepare_SQLite_insert {
+    my $self = shift;
+
     my @cols = ( keys %reserved_cols, keys %{ $self->_columns } );
 
     my $sth = $self->dbh->prepare_cached("INSERT OR REPLACE INTO entries (" . join(", ", @cols) . ") VALUES (" . join(", ", map { '?' } @cols) . ")");
-    #my $sth = $self->dbh->prepare_cached("INSERT INTO entries (" . join(", ", @cols) . ") VALUES (" . join(", ", map { '?' } @cols) . ") ON DUPLICATE KEY UPDATE " . join(", ", map { "$_ = ?" } grep { $_ ne 'id' } @cols));
 
-    foreach my $row ( @rows ) {
-        $sth->execute( @{ $row }{@cols} );
-        #$sth->execute( @{ $row }{@cols}, @{ $row }{grep { $_ ne 'id' } @cols} );
-    }
+    return ( undef, $sth, @cols );
+}
 
-    $sth->finish;
+sub prepare_mysql_insert {
+    my $self = shift;
+
+    my @cols = ( keys %reserved_cols, keys %{ $self->_columns } );
+
+    my $sth = $self->dbh->prepare_cached("INSERT INTO entries (" . join(", ", @cols) . ") VALUES (" . join(", ", map { '?' } @cols) . ") ON DUPLICATE KEY UPDATE " . join(", ", map { "$_ = ?" } grep { $_ ne 'id' } @cols));
+
+    return ( undef, $sth, @cols, grep { $_ ne 'id' } @cols );
+}
+
+sub prepare_fallback_insert {
+    my $self = shift;
+
+    my @cols = ( keys %reserved_cols, keys %{ $self->_columns } );
+
+    my $ins = $self->dbh->prepare_cached("INSERT INTO entries (" . join(", ", @cols) . ") VALUES (" . join(", ", map { '?' } @cols) . ")");
+
+    my $del = $self->dbh->prepare_cached("DELETE FROM entries WHERE id = ?");
+
+    return ( $del, $ins, @cols );
 }
 
 sub update_index {
