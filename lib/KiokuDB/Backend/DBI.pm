@@ -17,11 +17,10 @@ our $VERSION = "0.02";
 
 with qw(
     KiokuDB::Backend
-    KiokuDB::Backend::Serialize::JSON
+    KiokuDB::Backend::Serialize::Delegate
     KiokuDB::Backend::Role::Clear
     KiokuDB::Backend::Role::TXN
     KiokuDB::Backend::Role::Scan
-    KiokuDB::Backend::Role::UnicodeSafe
     KiokuDB::Backend::Role::Query::Simple
     KiokuDB::Backend::Role::Query::GIN
     Search::GIN::Extract::Delegate
@@ -42,7 +41,7 @@ sub new_from_dsn {
 
 sub BUILD { shift->dbh } # connect early
 
-has '+utf8' => ( default => 1 );
+has '+serializer' => ( default => "json" ); # to make dumps readable
 
 has [qw(dsn user password)] => (
     isa => "Str",
