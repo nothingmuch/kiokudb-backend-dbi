@@ -24,7 +24,7 @@ foreach my $dsn (
     #[ "dbi:Pg:dbname=test" ],
 ) {
     foreach my $serializer (qw(json storable), eval { require YAML::XS; "yaml" }) {
-        diag "testing against $dsn->[0] with $serializer\n";
+        #diag "testing against $dsn->[0] with $serializer\n";
 
         my $dir = KiokuDB->connect(
             @$dsn,
