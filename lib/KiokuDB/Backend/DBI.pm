@@ -673,7 +673,7 @@ Drops the C<entries> and C<gin_index> tables.
 
 =head1 VERSION CONTROL
 
-L<http://github.com/nothingmuch/kiokudb-backend-dbi/>
+L<http://github.com/nothingmuch/kiokudb-backend-dbi>
 
 =head1 AUTHOR
 
@@ -681,8 +681,8 @@ Yuval Kogman E<lt>nothingmuch@woobling.orgE<gt>
 
 =head1 COPYRIGHT
 
-	Copyright (c) 2008 Yuval Kogman. All rights reserved
-	This program is free software; you can redistribute
-	it and/or modify it under the same terms as Perl itself.
+    Copyright (c) 2008 Yuval Kogman, Infinity Interactive. All rights
+    reserved This program is free software; you can redistribute
+    it and/or modify it under the same terms as Perl itself.
 
 =cut
