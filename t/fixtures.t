@@ -18,22 +18,17 @@ use Search::GIN::Extract::Class;
 
 my $sqlite = "dbi:SQLite:dbname=" . temp_root->file("db");
 
-my $dbh = DBI->connect($sqlite);
-
-# disabling print_error doesn't make add_drop_table shut up
-$dbh->do("CREATE TABLE entries ( id integer primary key )" );
-$dbh->do("CREATE TABLE gin_index ( id integer primary key )" );
-
 foreach my $dsn (
     [ $sqlite ],
     #[ "dbi:mysql:test" ],
     #[ "dbi:Pg:dbname=test" ],
 ) {
     foreach my $serializer (qw(json storable), eval { require YAML::XS; "yaml" }) {
-        #diag "testing against $dsn->[0] with $serializer\n";
+        diag "testing against $dsn->[0] with $serializer\n";
 
         my $dir = KiokuDB->connect(
             @$dsn,
+            create => 1,
             serializer => $serializer,
             columns => [
                 name => {
@@ -48,8 +43,10 @@ foreach my $dsn (
             extract => Search::GIN::Extract::Class->new,
         );
 
-        $dir->backend->deploy({ add_drop_table => 1, producer_args => { mysql_version => 5 } });
+        $dir->txn_do(sub { $dir->backend->clear });
 
         run_all_fixtures($dir);
+
+        $dir->txn_do(sub { $dir->backend->drop_tables });
     }
 }

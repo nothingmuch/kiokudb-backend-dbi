@@ -39,9 +39,23 @@ sub new_from_dsn {
     $self->new( dsn => "dbi:$dsn", @args );
 }
 
-sub BUILD { shift->dbh } # connect early
+sub BUILD {
+    my $self = shift;
+
+    $self->dbh; # connect early
+
+    if ( $self->create ) {
+        $self->create_tables;
+    }
+}
 
 has '+serializer' => ( default => "json" ); # to make dumps readable
+
+has create => (
+    isa => "Bool",
+    is  => "ro",
+    default => 0,
+);
 
 has [qw(dsn user password)] => (
     isa => "Str",
@@ -416,6 +430,7 @@ sub clear {
     my $self = shift;
 
     $self->dbh->do("delete from entries");
+    $self->dbh->do("delete from gin_index");
 }
 
 sub _select_stream {
@@ -497,6 +512,20 @@ sub insert_entry {
     die "Insertion to the GIN index is handled implicitly";
 }
 
+sub create_tables {
+    my $self = shift;
+
+    unless ( @{ $self->dbh->table_info('', '', 'entries', 'TABLE')->fetchall_arrayref } ) {
+        $self->deploy({ producer_args => { mysql_version => 4.1 } });
+    }
+}
+
+sub drop_tables {
+    my $self = shift;
+
+    $self->dbh->do("drop table entries");
+    $self->dbh->do("drop table gin_index");
+}
 
 __PACKAGE__->meta->make_immutable;
 
