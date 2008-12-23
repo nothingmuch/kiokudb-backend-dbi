@@ -625,6 +625,27 @@ User in C<connect_info>'s builder.
 
 Additional columns, see L</"COLUMN EXTRACTIONS">.
 
+=item serializer
+
+L<KiokuDB::Serializer>. Coerces from a string, too:
+
+    KiokuDB->connect("dbi:...", serializer => "storable");
+
+Defaults to L<KiokuDB::Serializer::JSON>.
+
+=item create
+
+If true the existence of the tables will be checked for and the DB will be
+deployed if not.
+
+Defaults to false.
+
+=item extract
+
+An optional L<Search::GIN::Extract> used to create the C<gin_index> entries.
+
+Usually L<Search::GIN::Extract::Callback>.
+
 =back
 
 =head1 METHODS
@@ -643,6 +664,10 @@ Deployment to MySQL requires that you specify something like:
 
 because MySQL versions before 4 did not have support for boolean types, and the
 schema emitted by L<SQL::Translator> will not work with the queries used.
+
+=item drop_tables
+
+Drops the C<entries> and C<gin_index> tables.
 
 =back
 
