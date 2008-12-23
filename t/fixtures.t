@@ -21,7 +21,8 @@ foreach my $dsn (
     #[ "dbi:mysql:test" ],
     #[ "dbi:Pg:dbname=test" ],
 ) {
-    warn "@$dsn";
+    diag "testing against $dsn->[0]\n";
+
     my $dir = KiokuDB->connect(
         @$dsn,
         columns => [
