@@ -1,3 +1,7 @@
+0.03
+    - Switch to Serialize::Delegate
+    - add 'create' attribute
+
 0.02
     - Skip tests if DBD::SQLite is not available
 
