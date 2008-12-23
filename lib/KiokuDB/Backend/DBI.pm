@@ -329,9 +329,11 @@ sub update_index {
     foreach my $id ( keys %$entries ) {
         $d_sth->execute($id);
 
-        foreach my $value ( @{ $entries->{$id} } ) {
-            $i_sth->execute( $id, $value );
-        }
+        my $rv = $i_sth->execute_array(
+            {ArrayTupleStatus => []},
+            $id,
+            $entries->{$id},
+        );
     }
 
     $i_sth->finish;
