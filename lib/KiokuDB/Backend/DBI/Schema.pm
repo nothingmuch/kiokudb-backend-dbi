@@ -28,6 +28,8 @@ $gin_index->add_columns(
     value => { data_type => "varchar" },
 );
 
+$gin_index->add_relationship('entry_ids', 'entries',   { 'foreign.id' => 'me.id' });
+
 #$entries->sqlt_deploy_callback(sub {
 sub KiokuDB::Backend::DBI::Schema::Entries::sqlt_deploy_hook {
   my ($source, $sqlt_table) = @_;

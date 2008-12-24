@@ -198,6 +198,7 @@ sub insert {
 
         foreach my $entry ( @entries ) {
             my $id = $entry->id;
+
             if ( $entry->deleted || !$entry->has_object ) {
                 $gin_index{$id} = [];
             } else {
@@ -252,10 +253,17 @@ sub insert_rows {
     my ( $self, @rows ) = @_;
 
     my ( $del, $ins, @cols ) = $self->prepare_insert();
+    my @ids = map { $_->[0] } @rows;
+
+    if ( $self->extract ) {
+        my $del_gin_sth = $self->dbh->prepare_cached("DELETE FROM gin_index WHERE id IN (" . join(", ", ('?') x @rows ) . ")");
+        $del_gin_sth->execute(@ids);
+        $del_gin_sth->finish;
+    }
 
     if ( $del ) {
         my $del_sth = $self->dbh->prepare("DELETE FROM entries WHERE id IN (" . join(", ", ('?') x @rows ) . ")");
-        $del_sth->execute(map { $_->[0] } @rows);
+        $del_sth->execute(@ids);
         $del_sth->finish;
     }
 
@@ -325,12 +333,9 @@ sub prepare_fallback_insert {
 sub update_index {
     my ( $self, $entries ) = @_;
 
-    my $d_sth = $self->dbh->prepare_cached("DELETE FROM gin_index WHERE id = ?");
     my $i_sth = $self->dbh->prepare_cached("INSERT INTO gin_index (id, value) VALUES (?, ?)");
 
     foreach my $id ( keys %$entries ) {
-        $d_sth->execute($id);
-
         my $rv = $i_sth->execute_array(
             {ArrayTupleStatus => []},
             $id,
@@ -339,7 +344,6 @@ sub update_index {
     }
 
     $i_sth->finish;
-    $d_sth->finish;
 }
 
 sub get {
@@ -375,10 +379,12 @@ sub delete {
         # FIXME rely on cascade delete?
         my $sth = $self->dbh->prepare_cached("DELETE FROM gin_index WHERE id IN (" . join(", ", ('?') x @ids) . ")");
         $sth->execute(@ids);
+        $sth->finish;
     }
 
     my $sth = $self->dbh->prepare_cached("DELETE FROM entries WHERE id IN (" . join(", ", ('?') x @ids) . ")");
     $sth->execute(@ids);
+    $sth->finish;
 
     return;
 }
@@ -418,8 +424,8 @@ sub txn_rollback { shift->storage->txn_rollback(@_) }
 sub clear {
     my $self = shift;
 
-    $self->dbh->do("delete from entries");
-    $self->dbh->do("delete from gin_index");
+    $self->dbh->do("DELETE FROM gin_index");
+    $self->dbh->do("DELETE FROM entries");
 }
 
 sub _select_stream {
@@ -512,8 +518,8 @@ sub create_tables {
 sub drop_tables {
     my $self = shift;
 
-    $self->dbh->do("drop table entries");
-    $self->dbh->do("drop table gin_index");
+    $self->dbh->do("DROP TABLE gin_index");
+    $self->dbh->do("DROP TABLE entries");
 }
 
 __PACKAGE__->meta->make_immutable;
