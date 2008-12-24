@@ -46,7 +46,11 @@ foreach my $dsn (
         $dir->txn_do(sub { $dir->backend->clear });
 
         run_all_fixtures($dir);
+    }
 
-        $dir->txn_do(sub { $dir->backend->drop_tables });
+    if ( grep { !$_ } Test::Builder->new->summary ) {
+        diag "Leaving tables in $dsn->[0] due to test failures";
+    } else {
+        KiokuDB->connect( @$dsn )->backend->drop_tables;
     }
 }
