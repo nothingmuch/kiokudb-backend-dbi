@@ -12,11 +12,11 @@ use DBIx::Class::ResultSource::Table;
 my $entries = DBIx::Class::ResultSource::Table->new({ name => "entries", result_class => "KiokuDB::Backend::DBI::Schema::Entries" });
 
 $entries->add_columns(
-    id => { data_type => "varchar" },
-    data => { data_type => "blob", is_nullable => 0 },
+    id    => { data_type => "varchar" },
+    data  => { data_type => "blob", is_nullable => 0 },
     class => { data_type => "varchar", is_nullable => 1 },
-    root => { data_type => "boolean", is_nullable => 0 },
-    tied => { data_type => "varchar", size => length("SCALAR"), is_nullable => 1 },
+    root  => { data_type => "boolean", is_nullable => 0 },
+    tied  => { data_type => "char", size => 1, is_nullable => 1 },
 );
 
 $entries->set_primary_key("id");
@@ -24,7 +24,7 @@ $entries->set_primary_key("id");
 my $gin_index = DBIx::Class::ResultSource::Table->new({ name => "gin_index", result_class => "KiokuDB::Backend::DBI::Schema::GIN_Index" });
 
 $gin_index->add_columns(
-    id => { data_type => "varchar" }, # is is_foreign_key good for anythin?
+    id => { data_type => "varchar", is_foreign_key => 1 },
     value => { data_type => "varchar" },
 );
 
