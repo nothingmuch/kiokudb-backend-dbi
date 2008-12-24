@@ -312,17 +312,6 @@ sub prepare_mysql_insert {
     return ( undef, $sth, @cols, @cols[1 .. $#cols] );
 }
 
-sub prepare_Pg_insert {
-    my $self = shift;
-
-    my ( $del, $ins, @bind ) = $self->prepare_fallback_insert;
-
-    use DBD::Pg qw(PG_BYTEA);
-    $ins->bind_param(5, undef, { pg_type => PG_BYTEA });
-
-    return ( $del, $ins, @bind );
-}
-
 sub prepare_fallback_insert {
     my $self = shift;
 
