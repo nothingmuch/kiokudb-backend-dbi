@@ -572,6 +572,9 @@ loading entries.
 This driver has been tested with MySQL 5 (4.1 should be the minimal supported
 version), SQLite 3, and PostgresSQL 8.3.
 
+The SQL code is reasonably portable and should work with most databases. Binary
+column support is required when using the L<Storable> serializer.
+
 =head1 ATTRIBUTES
 
 =over 4
