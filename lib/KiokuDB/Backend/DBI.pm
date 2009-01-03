@@ -86,12 +86,23 @@ has schema => (
     handles => [qw(deploy)],
 );
 
+has schema_hook => (
+    isa => "CodeRef|Str",
+    is  => "ro",
+    predicate => "has_schema_hook",
+);
+
 sub _build_schema {
     my $self = shift;
 
     my $schema = KiokuDB::Backend::DBI::Schema->clone;
 
     $schema->source("entries")->add_columns(@{ $self->columns });
+
+    if ( $self->has_schema_hook ) {
+        my $h = $self->schema_hook;
+        $self->$h($schema);
+    }
 
     $schema->connect(@{ $self->connect_info });
 }
@@ -615,6 +626,14 @@ Defaults to false.
 An optional L<Search::GIN::Extract> used to create the C<gin_index> entries.
 
 Usually L<Search::GIN::Extract::Callback>.
+
+=item schema_hook
+
+A hook that is called on the backend object as a method with the schema as the
+argument just before connecting.
+
+If you need to modify the schema in some way (adding indexes or constraints)
+this is where it should be done.
 
 =back
 
