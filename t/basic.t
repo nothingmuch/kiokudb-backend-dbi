@@ -29,19 +29,21 @@ my $entry = KiokuDB::Entry->new(
     data => { oi => "vey" },
 );
 
-my $row = $b->entry_to_row($entry);
+my %c = map { $_ => [] } qw(id class data tied root oi);;
 
-is( $row->[0], $entry->id, "ID" );
+$b->entry_to_row($entry, \%c);
 
-is( $row->[1], $entry->class, "class" );
+is( $c{id}[0], $entry->id, "ID" );
 
-ok( $row->[2], "root entry" );
+is( $c{class}[0], $entry->class, "class" );
 
-like( $row->[4], qr/vey/, "data" );
+ok( $c{root}[0], "root entry" );
 
-ok( exists $row->[-1], "extracted column" );
+like( $c{data}[0], qr/vey/, "data" );
 
-is( $row->[-1], "vey", "column data" );
+ok( $c{oi}[0], "extracted column" );
+
+is( $c{oi}[0], "vey", "column data" );
 
 $b->txn_do(sub {
     $b->insert( $entry );
