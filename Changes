@@ -1,3 +1,9 @@
+0.05
+    - Use an update statement when an entry the 'prev' attribute, and insert
+      otherwise.
+    - Add a 'schema_hook' attribute, to allow modification of the cloned schema
+      before connecting
+
 0.04
     - Remove DBD::Pg usage (DBIC handles those parts now)
 
