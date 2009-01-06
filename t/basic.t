@@ -6,7 +6,7 @@ use warnings;
 use Test::More;
 
 BEGIN {
-    plan skip_all => "DBD::SQLite is required" unless eval { require DBI; require DBD::SQLite };
+    plan skip_all => "DBD::SQLite  are required" unless eval { require DBI; require DBD::SQLite };
     plan 'no_plan';
 }
 
@@ -19,8 +19,6 @@ my $b = KiokuDB::Backend::DBI->new(
     dsn => 'dbi:SQLite:dbname=' . temp_root->file("db"),
     columns => [qw(oi)],
 );
-
-$b->deploy;
 
 my $entry = KiokuDB::Entry->new(
     id => "foo",
@@ -45,12 +43,18 @@ ok( $c{oi}[0], "extracted column" );
 
 is( $c{oi}[0], "vey", "column data" );
 
-$b->txn_do(sub {
-    $b->insert( $entry );
-});
+SKIP: {
+    skip "SQL::Translator is required", 2 unless eval { require SQL::Translator };
 
-my ( $loaded_entry ) = $b->get("foo");
+    $b->deploy;
 
-isnt( $loaded_entry, $entry, "entries are different" );
+    $b->txn_do(sub {
+        $b->insert( $entry );
+    });
 
-is_deeply( $loaded_entry, $entry, "but eq deeply" );
+    my ( $loaded_entry ) = $b->get("foo");
+
+    isnt( $loaded_entry, $entry, "entries are different" );
+
+    is_deeply( $loaded_entry, $entry, "but eq deeply" );
+}
