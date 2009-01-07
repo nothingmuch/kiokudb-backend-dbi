@@ -13,7 +13,7 @@ use KiokuDB::Backend::DBI::Schema;
 
 use namespace::clean -except => 'meta';
 
-our $VERSION = "0.05";
+our $VERSION = "0.06";
 
 with qw(
     KiokuDB::Backend
