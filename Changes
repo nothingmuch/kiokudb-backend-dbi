@@ -1,3 +1,6 @@
+0.06
+    - Skip tests if SQL::Translator is missing
+
 0.05
     - Use an update statement when an entry the 'prev' attribute, and insert
       otherwise.
