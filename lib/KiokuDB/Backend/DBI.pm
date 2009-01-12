@@ -414,31 +414,60 @@ sub clear {
     $self->dbh->do("DELETE FROM entries");
 }
 
-sub _select_stream {
+sub _sth_stream {
     my ( $self, $sql, @bind ) = @_;
 
     my $sth = $self->dbh->prepare($sql); # can't prepare cached, we don't know when it will be done
 
     $sth->execute(@bind);
 
-    my $stream = Data::Stream::Bulk::DBI->new( sth => $sth );
+    Data::Stream::Bulk::DBI->new( sth => $sth );
+}
+
+sub _select_entry_stream {
+    my ( $self, @args ) = @_;
+
+    my $stream = $self->_sth_stream(@args);
 
     return $stream->filter(sub { [ map { $self->deserialize($_->[0]) } @$_ ] });
 }
 
 sub all_entries {
     my $self = shift;
-    $self->_select_stream("SELECT data FROM entries");
+    $self->_select_entry_stream("SELECT data FROM entries");
 }
 
 sub root_entries {
     my $self = shift;
-    $self->_select_stream("SELECT data FROM entries WHERE root");
+    $self->_select_entry_stream("SELECT data FROM entries WHERE root");
 }
 
 sub child_entries {
     my $self = shift;
-    $self->_select_stream("SELECT data FROM entries WHERE not root");
+    $self->_select_entry_stream("SELECT data FROM entries WHERE not root");
+}
+
+sub _select_id_stream {
+    my ( $self, @args ) = @_;
+
+    my $stream = $self->_sth_stream(@args);
+
+    return $stream->filter(sub {[ map { $_->[0] } @$_ ]});
+}
+
+sub all_entry_ids {
+    my $self = shift;
+    $self->_select_id_stream("SELECT id FROM entries");
+}
+
+sub root_entry_ids {
+    my $self = shift;
+    $self->_select_id_stream("SELECT id FROM entries WHERE root");
+}
+
+sub child_entry_ids {
+    my $self = shift;
+    $self->_select_id_stream("SELECT id FROM entries WHERE not root");
 }
 
 sub simple_search {
@@ -446,7 +475,7 @@ sub simple_search {
 
     my ( $where_clause, @bind ) = $self->sql_abstract->where($proto);
 
-    $self->_select_stream("SELECT data FROM entries $where_clause", @bind);
+    $self->_select_entry_stream("SELECT data FROM entries $where_clause", @bind);
 }
 
 sub search {
@@ -463,14 +492,14 @@ sub search {
 
     if ( $spec{method} eq 'all' and @v > 1) {
         # for some reason count(id) = ? doesn't work
-        return $self->_select_stream("
+        return $self->_select_entry_stream("
             SELECT data FROM entries WHERE id IN (
                 SELECT id FROM gin_index WHERE value IN (" . join(", ", ('?') x @v) . ") GROUP BY id HAVING COUNT(id) = " . scalar(@v) . "
             )",
             @v
         );
     } else {
-        return $self->_select_stream("
+        return $self->_select_entry_stream("
             SELECT data FROM entries WHERE id IN (
                 SELECT DISTINCT id FROM gin_index WHERE value IN (" . join(", ", ('?') x @v) . ")
             )",
