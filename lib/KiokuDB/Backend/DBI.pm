@@ -261,13 +261,15 @@ sub insert_rows {
 
         if ( $self->extract ) {
             foreach my $rows ( $insert, $update ) {
-                my $del_gin_sth = $dbh->prepare_cached("DELETE FROM gin_index WHERE id = ?");
+                if ( my @ids = @{ $rows->{ids} || [] } ) {
+                    my $bind = join(', ', map { '?' } @ids);
 
-                $del_gin_sth->execute_array(
-                    {ArrayTupleStatus => []},
-                    $rows->{ids},
-                );
-                $del_gin_sth->finish;
+                    my $del_gin_sth = $dbh->prepare_cached("DELETE FROM gin_index WHERE id = ($bind)");
+
+                    $del_gin_sth->execute(@ids);
+
+                    $del_gin_sth->finish;
+                }
             }
         }
 
