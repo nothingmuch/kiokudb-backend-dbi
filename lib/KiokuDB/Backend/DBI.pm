@@ -42,7 +42,7 @@ sub new_from_dsn {
 sub BUILD {
     my $self = shift;
 
-    $self->dbh; # connect early
+    $self->schema; # connect early
 
     if ( $self->create ) {
         $self->create_tables;
@@ -111,7 +111,7 @@ has storage => (
     isa => "DBIx::Class::Storage::DBI",
     is  => "rw",
     lazy_build => 1,
-    handles    => [qw(dbh dbh_do)],
+    handles    => [qw(dbh_do)],
 );
 
 sub _build_storage { shift->schema->storage }
@@ -256,62 +256,67 @@ sub entry_to_row {
 sub insert_rows {
     my ( $self, $insert, $update ) = @_;
 
-    if ( $self->extract ) {
-        foreach my $rows ( $insert, $update ) {
-            my $del_gin_sth = $self->dbh->prepare_cached("DELETE FROM gin_index WHERE id = ?");
-            $del_gin_sth->execute_array(
-                {ArrayTupleStatus => []},
-                $rows->{ids},
-            );
-            $del_gin_sth->finish;
+    $self->dbh_do(sub {
+        my ( $storage, $dbh ) = @_;
+
+        if ( $self->extract ) {
+            foreach my $rows ( $insert, $update ) {
+                my $del_gin_sth = $dbh->prepare_cached("DELETE FROM gin_index WHERE id = ?");
+
+                $del_gin_sth->execute_array(
+                    {ArrayTupleStatus => []},
+                    $rows->{ids},
+                );
+                $del_gin_sth->finish;
+            }
         }
-    }
 
-    my $bind_attributes = $self->storage->source_bind_attributes($self->schema->source("entries"));
+        my $bind_attributes = $self->storage->source_bind_attributes($self->schema->source("entries"));
 
-    my %rows = ( insert => $insert, update => $update );
+        my %rows = ( insert => $insert, update => $update );
 
-    foreach my $op (qw(insert update)) {
-        my $prepare = "prepare_$op";
-        my ( $sth, @cols ) = $self->$prepare();
+        foreach my $op (qw(insert update)) {
+            my $prepare = "prepare_$op";
+            my ( $sth, @cols ) = $self->$prepare($dbh);
 
-        my $i = 1;
+            my $i = 1;
 
-        foreach my $column_name (@cols) {
-            my $attributes = {};
+            foreach my $column_name (@cols) {
+                my $attributes = {};
 
-            if( $bind_attributes ) {
-                $attributes = $bind_attributes->{$column_name}
-                if defined $bind_attributes->{$column_name};
+                if( $bind_attributes ) {
+                    $attributes = $bind_attributes->{$column_name}
+                    if defined $bind_attributes->{$column_name};
+                }
+
+                $sth->bind_param_array( $i, $rows{$op}->{$column_name}, $attributes );
+
+                $i++;
             }
 
-            $sth->bind_param_array( $i, $rows{$op}->{$column_name}, $attributes );
+            $sth->execute_array({ArrayTupleStatus => []}) or die;
 
-            $i++;
+            $sth->finish;
         }
-
-        $sth->execute_array({ArrayTupleStatus => []}) or die;
-
-        $sth->finish;
-    }
+    });
 }
 
 sub prepare_insert {
-    my $self = shift;
+    my ( $self, $dbh ) = @_;
 
     my @cols = @{ $self->_ordered_columns };
 
-    my $ins = $self->dbh->prepare("INSERT INTO entries (" . join(", ", @cols) . ") VALUES (" . join(", ", ('?') x @cols) . ")");
+    my $ins = $dbh->prepare("INSERT INTO entries (" . join(", ", @cols) . ") VALUES (" . join(", ", ('?') x @cols) . ")");
 
     return ( $ins, @cols );
 }
 
 sub prepare_update {
-    my $self = shift;
+    my ( $self, $dbh ) = @_;
 
     my ( $id, @cols ) = @{ $self->_ordered_columns };
 
-    my $upd = $self->dbh->prepare("UPDATE entries SET " . join(", ", map { "$_ = ?" } @cols) . " WHERE $id = ?");
+    my $upd = $dbh->prepare("UPDATE entries SET " . join(", ", map { "$_ = ?" } @cols) . " WHERE $id = ?");
 
     return ( $upd, @cols, $id );
 }
@@ -319,58 +324,71 @@ sub prepare_update {
 sub update_index {
     my ( $self, $entries ) = @_;
 
-    my $i_sth = $self->dbh->prepare_cached("INSERT INTO gin_index (id, value) VALUES (?, ?)");
+    $self->dbh_do(sub {
+        my ( $storage, $dbh ) = @_;
 
-    foreach my $id ( keys %$entries ) {
-        my $rv = $i_sth->execute_array(
-            {ArrayTupleStatus => []},
-            $id,
-            $entries->{$id},
-        );
-    }
+        my $i_sth = $dbh->prepare_cached("INSERT INTO gin_index (id, value) VALUES (?, ?)");
 
-    $i_sth->finish;
+        foreach my $id ( keys %$entries ) {
+            my $rv = $i_sth->execute_array(
+                {ArrayTupleStatus => []},
+                $id,
+                $entries->{$id},
+            );
+        }
+
+        $i_sth->finish;
+    });
 }
 
 sub get {
     my ( $self, @ids ) = @_;
 
-    my $sth = $self->dbh->prepare_cached("SELECT id, data FROM entries WHERE id IN (" . join(", ", ('?') x @ids) . ")");
-    $sth->execute(@ids);
-
-    $sth->bind_columns( \my ( $id, $data ) );
-
-    # not actually necessary but i'm keeping it around for reference:
-    #my ( $id, $data );
-    #use DBD::Pg qw(PG_BYTEA);
-    #$sth->bind_col(1, \$id);
-    #$sth->bind_col(2, \$data, { pg_type => PG_BYTEA });
-
     my %entries;
-    while ( $sth->fetch ) {
-        $entries{$id} = $self->deserialize($data);
-    }
+
+    $self->dbh_do(sub {
+        my ( $storage, $dbh ) = @_;
+
+        my $sth = $dbh->prepare_cached("SELECT id, data FROM entries WHERE id IN (" . join(", ", ('?') x @ids) . ")");
+        $sth->execute(@ids);
+
+        $sth->bind_columns( \my ( $id, $data ) );
+
+        # not actually necessary but i'm keeping it around for reference:
+        #my ( $id, $data );
+        #use DBD::Pg qw(PG_BYTEA);
+        #$sth->bind_col(1, \$id);
+        #$sth->bind_col(2, \$data, { pg_type => PG_BYTEA });
+
+        while ( $sth->fetch ) {
+            $entries{$id} = $data;
+        }
+    });
 
     return if @ids != keys %entries; # ->rows only works after we're done
 
-    return @entries{@ids};
+    return map { $self->deserialize($_) } @entries{@ids};
 }
 
 sub delete {
     my ( $self, @ids_or_entries ) = @_;
 
-    my @ids = map { ref($_) ? $_->id : $_ } @ids_or_entries;
+    $self->dbh_do(sub {
+        my ( $storage, $dbh ) = @_;
 
-    if ( $self->extract ) {
-        # FIXME rely on cascade delete?
-        my $sth = $self->dbh->prepare_cached("DELETE FROM gin_index WHERE id IN (" . join(", ", ('?') x @ids) . ")");
+        my @ids = map { ref($_) ? $_->id : $_ } @ids_or_entries;
+
+        if ( $self->extract ) {
+            # FIXME rely on cascade delete?
+            my $sth = $dbh->prepare_cached("DELETE FROM gin_index WHERE id IN (" . join(", ", ('?') x @ids) . ")");
+            $sth->execute(@ids);
+            $sth->finish;
+        }
+
+        my $sth = $dbh->prepare_cached("DELETE FROM entries WHERE id IN (" . join(", ", ('?') x @ids) . ")");
         $sth->execute(@ids);
         $sth->finish;
-    }
-
-    my $sth = $self->dbh->prepare_cached("DELETE FROM entries WHERE id IN (" . join(", ", ('?') x @ids) . ")");
-    $sth->execute(@ids);
-    $sth->finish;
+    });
 
     return;
 }
@@ -380,12 +398,16 @@ sub exists {
 
     my %entries;
 
-    my $sth = $self->dbh->prepare_cached("SELECT id FROM entries WHERE id IN (" . join(", ", ('?') x @ids) . ")");
-    $sth->execute(@ids);
+    $self->dbh_do(sub {
+        my ( $storage, $dbh ) = @_;
 
-    $sth->bind_columns( \( my $id ) );
+        my $sth = $dbh->prepare_cached("SELECT id FROM entries WHERE id IN (" . join(", ", ('?') x @ids) . ")");
+        $sth->execute(@ids);
 
-    $entries{$id} = undef while $sth->fetch;
+        $sth->bind_columns( \( my $id ) );
+
+        $entries{$id} = undef while $sth->fetch;
+    });
 
     map { exists $entries{$_} } @ids;
 }
@@ -410,18 +432,25 @@ sub txn_rollback { shift->storage->txn_rollback(@_) }
 sub clear {
     my $self = shift;
 
-    $self->dbh->do("DELETE FROM gin_index");
-    $self->dbh->do("DELETE FROM entries");
+    $self->dbh_do(sub {
+        my ( $storage, $dbh ) = @_;
+
+        $dbh->do("DELETE FROM gin_index");
+        $dbh->do("DELETE FROM entries");
+    });
 }
 
 sub _sth_stream {
     my ( $self, $sql, @bind ) = @_;
 
-    my $sth = $self->dbh->prepare($sql); # can't prepare cached, we don't know when it will be done
+    $self->dbh_do(sub {
+        my ( $storage, $dbh ) = @_;
+        my $sth = $dbh->prepare($sql); # can't prepare cached, we don't know when it will be done
 
-    $sth->execute(@bind);
+        $sth->execute(@bind);
 
-    Data::Stream::Bulk::DBI->new( sth => $sth );
+        Data::Stream::Bulk::DBI->new( sth => $sth );
+    });
 }
 
 sub _select_entry_stream {
@@ -525,16 +554,24 @@ sub insert_entry {
 sub create_tables {
     my $self = shift;
 
-    unless ( @{ $self->dbh->table_info('', '', 'entries', 'TABLE')->fetchall_arrayref } ) {
-        $self->deploy({ producer_args => { mysql_version => 4.1 } });
-    }
+    $self->dbh_do(sub {
+        my ( $storage, $dbh ) = @_;
+
+        unless ( @{ $dbh->table_info('', '', 'entries', 'TABLE')->fetchall_arrayref } ) {
+            $self->deploy({ producer_args => { mysql_version => 4.1 } });
+        }
+    });
 }
 
 sub drop_tables {
     my $self = shift;
 
-    $self->dbh->do("DROP TABLE gin_index");
-    $self->dbh->do("DROP TABLE entries");
+    $self->dbh_do(sub {
+        my ( $storage, $dbh ) = @_;
+
+        $dbh->do("DROP TABLE gin_index");
+        $dbh->do("DROP TABLE entries");
+    });
 }
 
 __PACKAGE__->meta->make_immutable;
