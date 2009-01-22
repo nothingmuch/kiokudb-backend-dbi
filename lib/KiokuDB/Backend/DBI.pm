@@ -552,8 +552,10 @@ KiokuDB::Backend::DBI - L<DBI> backend for L<KiokuDB>
 =head1 SYNOPSIS
 
     my $dir = KiokuDB->connect(
-        "dbi:SQLite:dbname=foo",
-        columns => [
+        "dbi:mysql:foo",
+        user     => "blah",
+        password => "moo',
+        columns  => [
             # specify extra columns for the 'entries' table
             # in the same format you pass to DBIC's add_columns
 
