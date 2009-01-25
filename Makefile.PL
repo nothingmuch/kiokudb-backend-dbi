@@ -15,7 +15,7 @@ WriteMakefile(
         'MooseX::Types' => '0.08',
         'MooseX::Types::Moose' => 0,
 
-        'KiokuDB' => '0.13',
+        'KiokuDB' => '0.24',
         'DBIx::Class' => '0.081'
         'DBI' => '1.607', # execute_array etc
 
