@@ -23,6 +23,7 @@ with qw(
     KiokuDB::Backend::Role::Scan
     KiokuDB::Backend::Role::Query::Simple
     KiokuDB::Backend::Role::Query::GIN
+    KiokuDB::Backend::Role::Concurrency::POSIX
     Search::GIN::Extract::Delegate
 );
 # KiokuDB::Backend::Role::TXN::Nested is not supported by many DBs
@@ -644,6 +645,56 @@ version), SQLite 3, and PostgresSQL 8.3.
 
 The SQL code is reasonably portable and should work with most databases. Binary
 column support is required when using the L<Storable> serializer.
+
+=head2 Transactions
+
+For reasons of performance and ease of use database vendors ship with read
+committed transaction isolation by default.
+
+This means that read locks are B<not> acquired when data is fetched from the
+database, allowing it to be updated by another writer. If the current
+transaction then updates the value it will be silently overwritten.
+
+IMHO this is a much bigger problem when the data is unstructured. This is
+because data is loaded and fetched in potentially smaller chunks, increasing
+the risk of phantom reads.
+
+Unfortunately enabling truly isolated transaction semantics means that
+C<txn_commit> may fail due to a lock contention, forcing you to repeat your
+transaction. Arguably this is more correct "read comitted", which can lead to
+race conditions.
+
+Enabling repeatable read or serializable transaction isolation prevents
+transactions from interfering with eachother, by ensuring all data reads are
+performed with a shared lock.
+
+For more information on isolation see
+L<http://en.wikipedia.org/wiki/Isolation_(computer_science)>
+
+=head3 SQLite
+
+SQLite provides serializable isolation by default.
+
+L<http://www.sqlite.org/pragma.html#pragma_read_uncommitted>
+
+=head2 MySQL
+
+MySQL provides read committed isolation by default.
+
+Serializable level isolation can be enabled by by default by changing the
+C<transaction-isolation> global variable,
+
+L<http://dev.mysql.com/doc/refman/5.1/en/set-transaction.html#isolevel_serializable>
+
+=head2 PostgreSQL
+
+PostgreSQL provides read committed isolation by default.
+
+Repeatable read or serializable isolation can be enabled by setting the default
+transaction isolation level, or using the C<SET TRANSACTION> SQL statement.
+
+L<http://www.postgresql.org/docs/8.3/interactive/transaction-iso.html>,
+L<http://www.postgresql.org/docs/8.3/interactive/runtime-config-client.html#GUC-DEFAULT-TRANSACTION-ISOLATION>
 
 =head1 ATTRIBUTES
 
