@@ -577,6 +577,14 @@ sub drop_tables {
     });
 }
 
+sub DEMOLISH {
+    my $self = shift;
+
+    if ( $self->has_storage ) {
+        $self->storage->disconnect;
+    }
+}
+
 __PACKAGE__->meta->make_immutable;
 
 __PACKAGE__
