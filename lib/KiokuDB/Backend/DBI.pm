@@ -58,7 +58,13 @@ has create => (
     default => 0,
 );
 
-has [qw(dsn user password)] => (
+has 'dsn' => (
+    isa => "Str|CodeRef",
+    is  => "ro",
+);
+
+
+has [qw(user password)] => (
     isa => "Str",
     is  => "ro",
 );
