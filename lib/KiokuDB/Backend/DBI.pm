@@ -421,19 +421,6 @@ sub exists {
     map { exists $entries{$_} } @ids;
 }
 
-sub txn_do {
-    my ( $self, $code, %args ) = @_;
-
-    my @ret = eval { shift->storage->txn_do($code) };
-
-    if ( $@ ) {
-        if ( my $rb = $args{rollback} ) { $rb->() };
-        die $@;
-    }
-
-    return @ret;
-}
-
 sub txn_begin    { shift->storage->txn_begin(@_) }
 sub txn_commit   { shift->storage->txn_commit(@_) }
 sub txn_rollback { shift->storage->txn_rollback(@_) }
