@@ -358,8 +358,15 @@ sub get {
     $self->dbh_do(sub {
         my ( $storage, $dbh ) = @_;
 
-        my $sth = $dbh->prepare_cached("SELECT id, data FROM entries WHERE id IN (" . join(", ", ('?') x @ids) . ")");
-        $sth->execute(@ids);
+        my $sth;
+
+        if ( @ids ) {
+            $sth = $dbh->prepare_cached("SELECT id, data FROM entries WHERE id IN (" . join(", ", ('?') x @ids) . ")");
+            $sth->execute(@ids);
+        } else {
+            $sth = $dbh->prepare_cached("SELECT id, data FROM entries");
+            $sth->execute;
+        }
 
         $sth->bind_columns( \my ( $id, $data ) );
 
