@@ -11,6 +11,8 @@ use Data::Stream::Bulk::DBI;
 
 use KiokuDB::Backend::DBI::Schema;
 
+use SQL::Abstract;
+
 use namespace::clean -except => 'meta';
 
 our $VERSION = "0.06";
