@@ -22,11 +22,10 @@ WriteMakefile(
         'Data::Stream::Bulk' => 0.07,
 
         'Test::use::ok' => 0,
-        'Test::More' => 0,
+        'Test::More' => '0.88',
         'Test::TempDir' => 0,
 
         'SQL::Abstract' => 0,
         'Search::GIN' => 0,
     },
 );
-

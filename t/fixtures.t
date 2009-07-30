@@ -4,7 +4,6 @@ use Test::More;
 
 BEGIN {
     plan skip_all => "DBD::SQLite and SQL::Translator are required" unless eval { require DBI; require DBD::SQLite; require SQL::Translator };
-    plan 'no_plan';
 }
 
 use Test::TempDir;
@@ -59,3 +58,5 @@ foreach my $dsn (
         }
     }
 }
+
+done_testing;

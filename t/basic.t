@@ -7,7 +7,6 @@ use Test::More;
 
 BEGIN {
     plan skip_all => "DBD::SQLite  are required" unless eval { require DBI; require DBD::SQLite };
-    plan 'no_plan';
 }
 
 use Test::TempDir;
@@ -58,3 +57,5 @@ SKIP: {
 
     is_deeply( $loaded_entry, $entry, "but eq deeply" );
 }
+
+done_testing;
