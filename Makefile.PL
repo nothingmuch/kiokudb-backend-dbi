@@ -19,7 +19,7 @@ WriteMakefile(
         'DBIx::Class' => '0.08102',
         'DBI' => '1.607', # execute_array etc
 
-        'Data::Stream::Bulk' => 0,
+        'Data::Stream::Bulk' => 0.07,
 
         'Test::use::ok' => 0,
         'Test::More' => 0,
