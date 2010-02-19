@@ -683,7 +683,7 @@ SQLite provides serializable isolation by default.
 
 L<http://www.sqlite.org/pragma.html#pragma_read_uncommitted>
 
-=head2 MySQL
+=head3 MySQL
 
 MySQL provides read committed isolation by default.
 
@@ -692,7 +692,7 @@ C<transaction-isolation> global variable,
 
 L<http://dev.mysql.com/doc/refman/5.1/en/set-transaction.html#isolevel_serializable>
 
-=head2 PostgreSQL
+=head3 PostgreSQL
 
 PostgreSQL provides read committed isolation by default.
 
