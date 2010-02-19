@@ -558,7 +558,7 @@ sub create_tables {
     $self->dbh_do(sub {
         my ( $storage, $dbh ) = @_;
 
-        unless ( @{ $dbh->table_info('', '', 'entries', 'TABLE')->fetchall_arrayref } ) {
+        unless ( @{ $dbh->table_info('%', '%', 'entries', 'TABLE')->fetchall_arrayref } ) {
             $self->deploy({ producer_args => { mysql_version => 4.1 } });
         }
     });

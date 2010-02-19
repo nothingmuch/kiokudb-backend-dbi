@@ -15,6 +15,7 @@ use KiokuDB::Test;
 
 use Search::GIN::Extract::Class;
 
+# real file needed for concurrency tests
 my $sqlite = "dbi:SQLite:dbname=" . temp_root->file("db");
 
 foreach my $dsn (
