@@ -1,3 +1,7 @@
+0.09
+    - Fix double deployment with recent versions of DBD::SQLite
+    - Pod fixes
+
 0.08
     - Fix GIN key update (FIXME no coverage in KiokuDB test suite yet)
     - uses done_testing in test suite
