@@ -1,3 +1,12 @@
+0.10
+    - Added mysql_strict attribute, true by default, causes SQL's strict mode
+      to be set
+    - Now specifies 'longblob' instead of 'blob' as the type for the 'data'
+      column when deploying to MySQL because the "large" in blob apparently
+      means 64k and MySQL was truncating it by default
+    - Added more bitter comments about MySQL to the documentation
+    - Make the table_info fix from 0.09 only apply to SQLite
+
 0.09
     - Fix double deployment with recent versions of DBD::SQLite
     - Pod fixes
