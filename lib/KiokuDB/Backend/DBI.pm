@@ -477,8 +477,10 @@ sub get {
             # FIXME special case FSCK
             $entries{$_} = KiokuDB::Entry->new(
                 id    => $_,
-                data  => undef,
-                class => "DBIx::Class::" . ( $_ eq 'dbic:schema' ? 'Schema' : 'ResultSourceHandle' ),
+                ( $_ eq 'dbic:schema'
+                    ? ( class => 'DBIx::Class::Schema', data => $self->schema )
+                    : ( class => 'DBIx::Class::ResultSourceHandle', data => undef )
+                )
             );
         } elsif ( /^dbic:row:/ ) {
             push @rows, $_;
