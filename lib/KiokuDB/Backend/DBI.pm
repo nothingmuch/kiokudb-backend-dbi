@@ -3,17 +3,25 @@
 package KiokuDB::Backend::DBI;
 use Moose;
 
-use MooseX::Types -declare => [qw(ValidColumnName)];
+use Moose::Util::TypeConstraints;
 
-use MooseX::Types::Moose qw(ArrayRef HashRef Str);
+use MooseX::Types -declare => [qw(ValidColumnName SchemaProto)];
+
+use MooseX::Types::Moose qw(ArrayRef HashRef Str Defined);
 
 use Moose::Util::TypeConstraints qw(enum);
 
 use Data::Stream::Bulk::DBI;
+use SQL::Abstract;
+use JSON;
+use Scalar::Util qw(weaken);
 
 use KiokuDB::Backend::DBI::Schema;
-
-use SQL::Abstract;
+use KiokuDB::TypeMap;
+use KiokuDB::TypeMap::Entry::DBIC::Row;
+use KiokuDB::TypeMap::Entry::DBIC::ResultSourceHandle;
+use KiokuDB::TypeMap::Entry::DBIC::ResultSet;
+use KiokuDB::TypeMap::Entry::DBIC::Schema;
 
 use namespace::clean -except => 'meta';
 
@@ -38,6 +46,7 @@ my @reserved_cols = ( @std_cols, 'data' );
 my %reserved_cols = ( map { $_ => 1 } @reserved_cols );
 
 subtype ValidColumnName, as Str, where { not exists $reserved_cols{$_} };
+subtype SchemaProto, as Defined, where { !ref($_) || blessed($_) and $_->isa("DBIx::Class::Schema::KiokuDB") };
 
 sub new_from_dsn {
     my ( $self, $dsn, @args ) = @_;
@@ -56,6 +65,12 @@ sub BUILD {
 
 has '+serializer' => ( default => "json" ); # to make dumps readable
 
+has json => (
+    isa => "Object",
+    is  => "ro",
+    default => sub { JSON->new },
+);
+
 has create => (
     isa => "Bool",
     is  => "ro",
@@ -66,7 +81,6 @@ has 'dsn' => (
     isa => "Str|CodeRef",
     is  => "ro",
 );
-
 
 has [qw(user password)] => (
     isa => "Str",
@@ -154,7 +168,13 @@ has schema => (
     isa => "DBIx::Class::Schema",
     is  => "ro",
     lazy_build => 1,
-    handles => [qw(deploy)],
+    handles => [qw(deploy kiokudb_entries_source_name)],
+);
+
+has schema_proto => (
+    isa => SchemaProto,
+    is  => "ro",
+    default => "KiokuDB::Backend::DBI::Schema",
 );
 
 has schema_hook => (
@@ -166,9 +186,11 @@ has schema_hook => (
 sub _build_schema {
     my $self = shift;
 
-    my $schema = KiokuDB::Backend::DBI::Schema->clone;
+    my $schema = $self->schema_proto->clone;
 
-    $schema->source("entries")->add_columns(@{ $self->columns });
+    unless ( $schema->kiokudb_entries_source_name ) {
+        $schema->define_kiokudb_schema( extra_entries_columns => $self->columns );
+    }
 
     if ( $self->has_schema_hook ) {
         my $h = $self->schema_hook;
@@ -224,7 +246,7 @@ has _columns => (
 sub _build__columns {
     my $self = shift;
 
-    my $rs = $self->schema->source("entries");
+    my $rs = $self->schema->source( $self->kiokudb_entries_source_name );
 
     my @user_cols = grep { not exists $reserved_cols{$_} } $rs->columns;
 
@@ -271,6 +293,28 @@ sub _build_sql_abstract {
     SQL::Abstract->new;
 }
 
+sub register_handle {
+    my ( $self, $kiokudb ) = @_;
+
+    $self->schema->_kiokudb_handle($kiokudb);
+}
+
+sub default_typemap {
+    KiokuDB::TypeMap->new(
+        isa_entries => {
+            # redirect to schema row
+            'DBIx::Class::Row'                => KiokuDB::TypeMap::Entry::DBIC::Row->new,
+
+            # actual serialization
+            'DBIx::Class::ResultSet'          => KiokuDB::TypeMap::Entry::DBIC::ResultSet->new,
+
+            # fake, the entries never get written to the db
+            'DBIx::Class::ResultSourceHandle' => KiokuDB::TypeMap::Entry::DBIC::ResultSourceHandle->new,
+            'DBIx::Class::Schema'             => KiokuDB::TypeMap::Entry::DBIC::Schema->new,
+        },
+    );
+}
+
 sub insert {
     my ( $self, @entries ) = @_;
 
@@ -298,7 +342,7 @@ sub insert {
 sub entries_to_rows {
     my ( $self, @entries ) = @_;
 
-    my ( %insert, %update );
+    my ( %insert, %update, @dbic );
 
     foreach my $t ( \%insert, \%update ) {
         foreach my $col ( @{ $self->_ordered_columns } ) {
@@ -307,12 +351,20 @@ sub entries_to_rows {
     }
 
     foreach my $entry ( @entries ) {
-        my $targ = $entry->prev ? \%update : \%insert;
+        my $id = $entry->id;
 
-        my $row = $self->entry_to_row($entry, $targ);
+        if ( $id =~ /^dbic:schema:/ ) {
+            next;
+        } elsif ( $id =~ /^dbic:row:/ ) {
+            push @dbic, $entry->data;
+        } else {
+            my $targ = $entry->prev ? \%update : \%insert;
+
+            my $row = $self->entry_to_row($entry, $targ);
+        }
     }
 
-    return \( %insert, %update );
+    return \( %insert, %update, @dbic );
 }
 
 sub entry_to_row {
@@ -347,7 +399,7 @@ sub entry_to_row {
 }
 
 sub insert_rows {
-    my ( $self, $insert, $update ) = @_;
+    my ( $self, $insert, $update, $dbic ) = @_;
 
     $self->dbh_do(sub {
         my ( $storage, $dbh ) = @_;
@@ -389,6 +441,8 @@ sub insert_rows {
 
             $sth->finish;
         }
+
+        $_->insert_or_update for @$dbic;
     });
 }
 
@@ -439,39 +493,123 @@ sub update_index {
 }
 
 sub get {
-    my ( $self, @ids ) = @_;
+    my ( $self, @rows_and_ids ) = @_;
 
     my %entries;
 
-    $self->dbh_do(sub {
-        my ( $storage, $dbh ) = @_;
+    my ( @rows, @ids );
 
-        my $sth;
+    for ( @rows_and_ids ) {
+        if ( /^dbic:schema/ ) {
+            # schema objects aren't actually written into the DB
+            # FIXME special case FSCK
+            $entries{$_} = KiokuDB::Entry->new(
+                id    => $_,
+                ( $_ eq 'dbic:schema'
+                    ? ( class => 'DBIx::Class::Schema', data => $self->schema )
+                    : ( class => 'DBIx::Class::ResultSourceHandle', data => undef )
+                )
+            );
+        } elsif ( /^dbic:row:/ ) {
+            push @rows, $_;
+        } else {
+            push @ids, $_;
+        }
+    }
 
-        if ( @ids ) {
+    if ( @ids ) {
+        $self->dbh_do(sub {
+            my ( $storage, $dbh ) = @_;
+
+            my $sth;
+
             $sth = $self->prepare_select($dbh, "SELECT id, data FROM entries WHERE id IN (" . join(", ", ('?') x @ids) . ")");
             $sth->execute(@ids);
-        } else {
-            $sth = $self->prepare_select($dbh, "SELECT id, data FROM entries");
-            $sth->execute;
+
+            $sth->bind_columns( \my ( $id, $data ) );
+
+            # not actually necessary but i'm keeping it around for reference:
+            #my ( $id, $data );
+            #use DBD::Pg qw(PG_BYTEA);
+            #$sth->bind_col(1, \$id);
+            #$sth->bind_col(2, \$data, { pg_type => PG_BYTEA });
+
+            while ( $sth->fetch ) {
+                $entries{$id} = $data;
+            }
+        });
+    }
+
+    if ( @rows ) {
+        my $schema = $self->schema;
+        my $json = $self->json;
+
+        my ( %keys, %ids );
+
+        foreach my $id ( @rows ) {
+            my ( $rs_name, @key ) = @{ $json->decode(substr($id,length('dbic:row:'))) };
+
+            if ( @key > 2 ) {
+                # multi column primary keys need 'find'
+                my $obj = $schema->resultset($rs_name)->find(@key);
+
+                $entries{$id} = KiokuDB::Entry->new(
+                    id    => $id,
+                    class => ref($obj),
+                    data  => $obj,
+                );
+            } else {
+                # for other objects we queue up IDs for a single SELECT
+                push @{ $keys{$rs_name} ||= [] }, $key[0];
+                push @{ $ids{$rs_name}  ||= [] }, $id;
+            }
         }
 
-        $sth->bind_columns( \my ( $id, $data ) );
+        foreach my $rs_name ( keys %keys ) {
+            my $rs = $schema->resultset($rs_name);
 
-        # not actually necessary but i'm keeping it around for reference:
-        #my ( $id, $data );
-        #use DBD::Pg qw(PG_BYTEA);
-        #$sth->bind_col(1, \$id);
-        #$sth->bind_col(2, \$data, { pg_type => PG_BYTEA });
+            my $ids = $ids{$rs_name};
 
-        while ( $sth->fetch ) {
-            $entries{$id} = $data;
+            my @objs;
+
+            if ( @$ids == 1 ) {
+                my $id = $ids->[0];
+
+                my $obj = $rs->find($keys{$rs_name}[0]) or return;
+
+                $entries{$id} = KiokuDB::Entry->new(
+                    id => $id,
+                    class => ref($obj),
+                    data => $obj,
+                );
+            } else {
+                my @pk = $rs->result_source->primary_columns;
+
+                my $keys = $keys{$rs_name};
+
+                my @objs = $rs->search({ $pk[0] => $keys })->all;
+
+                return if @objs != @$ids;
+
+                # this key lookup is because it's not returned in the same order
+                my %pk_to_id;
+                @pk_to_id{@{ $keys{$rs_name} }} = @$ids;
+
+                foreach my $obj ( @objs ) {
+                    my $id = $pk_to_id{$obj->id};
+                    $entries{$id} = KiokuDB::Entry->new(
+                        id    => $id,
+                        class => ref($obj),
+                        data  => $obj,
+                    );
+                }
+            }
         }
-    });
+    }
 
-    return if @ids != keys %entries; # ->rows only works after we're done
+    return if @rows_and_ids != keys %entries; # ->rows only works after we're done
 
-    return map { $self->deserialize($_) } @entries{@ids};
+    map { ref($_) ? $_ : $self->deserialize($_) } @entries{@rows_and_ids};
 }
 
 sub delete {
@@ -746,6 +884,16 @@ will be C<NULL>.
 These columns are only used for lookup purposes, only C<data> is consulted when
 loading entries.
 
+=head1 DBIC INTEGRATION
+
+This backend is layered on top of L<DBIx::Class::Storage::DBI> and reused
+L<DBIx::Class::Schema> for DDL.
+
+Because of this objects from a L<DBIx::Class::Schema> can refer to objects in
+the KiokuDB entries table, and vice versa.
+
+For more details see L<DBIx::Class::Schema::KiokuDB>.
+
 =head1 SUPPORTED DATABASES
 
 This driver has been tested with MySQL 5 (4.1 should be the minimal supported
@@ -935,6 +1083,23 @@ schema emitted by L<SQL::Translator> will not work with the queries used.
 Drops the C<entries> and C<gin_index> tables.
 
 =back
+
+=head1 TROUBLESHOOTING
+
+=head2 I get C<unexpected end of string while parsing JSON string>
+
+You are problably using MySQL, which comes with a helpful data compression
+feature: when your serialized objects are larger than the maximum size of a
+C<BLOB> column MySQL will simply shorten it for you.
+
+Why C<BLOB> defaults to 64k, and how on earth someone would consider silent
+data truncation a sane default I could never fathom, but nevertheless MySQL
+does allow you to disable this by setting the "strict" SQL mode in the
+configuration.
+
+To resolve the actual problem (though this obviously won't repair your lost
+data), alter the entries table so that the C<data> column uses the nonstandard
+C<LONGBLOB> datatype.
 
 =head1 VERSION CONTROL
 
