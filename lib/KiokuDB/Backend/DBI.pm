@@ -858,6 +858,16 @@ will be C<NULL>.
 These columns are only used for lookup purposes, only C<data> is consulted when
 loading entries.
 
+=head1 DBIC INTEGRATION
+
+This backend is layered on top of L<DBIx::Class::Storage::DBI> and reused
+L<DBIx::Class::Schema> for DDL.
+
+Because of this objects from a L<DBIx::Class::Schema> can refer to objects in
+the KiokuDB entries table, and vice versa.
+
+For more details see L<DBIx::Class::Schema::KiokuDB>.
+
 =head1 SUPPORTED DATABASES
 
 This driver has been tested with MySQL 5 (4.1 should be the minimal supported
