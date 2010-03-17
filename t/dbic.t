@@ -174,13 +174,48 @@ $dir->txn_do( scope => 1, body => sub {
 
     isa_ok( $foo, "Foo" );
 
-    isa_ok( my $rs = $foo->obj, "DBIx::Class::ResultSet" );
+    my $rs = $foo->obj;
 
-    is( refaddr($rs->result_source->schema), refaddr($dir->backend->schema), "schema restored" );
+    isa_ok( $rs, "DBIx::Class::ResultSet" );
 
-    is_deeply( [ $rs->all ], [ $dir->backend->schema->resultset("Foo")->search({ id => [ 1, 3 ]})->all ], "result set works" );
+    is( refaddr($rs->result_source->schema), refaddr($dir->backend->schema), "schema restored in resultset handle" );
+
+    is_deeply(
+        [ sort { $a->id <=> $b->id } $rs->all ],
+        [ sort { $a->id <=> $b->id } $dir->backend->schema->resultset("Foo")->search({ id => [ 1, 3 ]})->all ],
+        "result set works"
+    );
 });
 
 is_deeply( [ $dir->live_objects->live_objects ], [], "no live objects" );
+
+$dir->txn_do( scope => 1, body => sub {
+    my $rs = $dir->backend->schema->resultset("Foo")->search({ id => [ 1, 3 ] });
+
+    my $foo = Foo->new( obj => $dir->backend->schema );
+
+    $dir->insert( with_schema => $foo );
+});
+
+# FIXME register it as immutable
+is_deeply( [ $dir->live_objects->live_objects ], [ $dir->backend->schema ], "only schema in live objects" );
+$dir->live_objects->clear;
+
+$dir->txn_do( scope => 1, body => sub {
+    my $foo = $dir->lookup("with_schema");
+
+    isa_ok( $foo, "Foo" );
+
+    my $rs = $foo->obj;
+
+    my $schema = $foo->obj;
+
+    isa_ok( $schema, "DBIx::Class::Schema" );
+
+    is( refaddr($schema), refaddr($dir->backend->schema), "schema restored" );
+});
+
+is_deeply( [ $dir->live_objects->live_objects ], [ $dir->backend->schema ], "only schema in live objects" );
+$dir->live_objects->clear;
 
 done_testing;
