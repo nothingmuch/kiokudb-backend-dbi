@@ -19,6 +19,9 @@ use Scalar::Util qw(weaken);
 use KiokuDB::Backend::DBI::Schema;
 use KiokuDB::TypeMap;
 use KiokuDB::TypeMap::Entry::DBIC::Row;
+use KiokuDB::TypeMap::Entry::DBIC::ResultSourceHandle;
+use KiokuDB::TypeMap::Entry::DBIC::ResultSet;
+use KiokuDB::TypeMap::Entry::DBIC::Schema;
 
 use namespace::clean -except => 'meta';
 
@@ -277,7 +280,15 @@ sub register_handle {
 sub default_typemap {
     KiokuDB::TypeMap->new(
         isa_entries => {
-            'DBIx::Class::Row' => KiokuDB::TypeMap::Entry::DBIC::Row->new,
+            # redirect to schema row
+            'DBIx::Class::Row'                => KiokuDB::TypeMap::Entry::DBIC::Row->new,
+
+            # actual serialization
+            'DBIx::Class::ResultSet'          => KiokuDB::TypeMap::Entry::DBIC::ResultSet->new,
+
+            # fake, the entries never get written to the db
+            'DBIx::Class::ResultSourceHandle' => KiokuDB::TypeMap::Entry::DBIC::ResultSourceHandle->new,
+            'DBIx::Class::Schema'             => KiokuDB::TypeMap::Entry::DBIC::Schema->new,
         },
     );
 }
@@ -318,7 +329,11 @@ sub entries_to_rows {
     }
 
     foreach my $entry ( @entries ) {
-        if ( $entry->id =~ /^row:/ ) {
+        my $id = $entry->id;
+
+        if ( $id =~ /^dbic:schema:/ ) {
+            next;
+        } elsif ( $id =~ /^dbic:row:/ ) {
             push @dbic, $entry->data;
         } else {
             my $targ = $entry->prev ? \%update : \%insert;
@@ -457,7 +472,15 @@ sub get {
     my ( @rows, @ids );
 
     for ( @rows_and_ids ) {
-        if ( /^row:/ ) {
+        if ( /^dbic:schema/ ) {
+            # schema objects aren't actually written into the DB
+            # FIXME special case FSCK
+            $entries{$_} = KiokuDB::Entry->new(
+                id    => $_,
+                data  => undef,
+                class => "DBIx::Class::" . ( $_ eq 'dbic:schema' ? 'Schema' : 'ResultSourceHandle' ),
+            );
+        } elsif ( /^dbic:row:/ ) {
             push @rows, $_;
         } else {
             push @ids, $_;
@@ -494,7 +517,7 @@ sub get {
         my ( %keys, %ids );
 
         foreach my $id ( @rows ) {
-            my ( $rs_name, @key ) = @{ $json->decode(substr($id,4)) };
+            my ( $rs_name, @key ) = @{ $json->decode(substr($id,length('dbic:row:'))) };
 
             if ( @key > 2 ) {
                 # multi column primary keys need 'find'
