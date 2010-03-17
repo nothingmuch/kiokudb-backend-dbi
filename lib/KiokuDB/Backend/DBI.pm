@@ -17,7 +17,7 @@ use SQL::Abstract;
 
 use namespace::clean -except => 'meta';
 
-our $VERSION = "0.09";
+our $VERSION = "1.10";
 
 with qw(
     KiokuDB::Backend
