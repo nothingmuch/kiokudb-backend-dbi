@@ -33,6 +33,7 @@ BEGIN {
     use Moose;
 
     has name => ( isa => "Str", is => "ro" );
+    has obj  => ( isa => "Object", is => "ro", weak_ref => 1 );
 
     __PACKAGE__->meta->make_immutable;
 }
@@ -53,6 +54,8 @@ $dir->txn_do( scope => 1, body => sub {
     isa_ok( $row->object, 'Foo', 'inflated from constructor' );
 });
 
+is_deeply( [ $dir->live_objects->live_objects ], [], "no live objects" );
+
 foreach my $id ( 1, 2 ) {
     $dir->txn_do( scope => 1, body => sub {
         my $row = $dir->backend->schema->resultset("Foo")->find(1);
@@ -64,9 +67,13 @@ foreach my $id ( 1, 2 ) {
     });
 }
 
+is_deeply( [ $dir->live_objects->live_objects ], [], "no live objects" );
+
 $dir->txn_do( scope => 1, body => sub {
     $dir->backend->schema->resultset("Foo")->create({ id => 3, name => "foo", object => Foo->new });
 });
+
+is_deeply( [ $dir->live_objects->live_objects ], [], "no live objects" );
 
 $dir->txn_do( scope => 1, body => sub {
     my $row = $dir->backend->schema->resultset("Foo")->find(3);
@@ -86,5 +93,37 @@ $dir->txn_do( scope => 1, body => sub {
 
     lives_ok { $row->store } "store method works";
 });
+
+is_deeply( [ $dir->live_objects->live_objects ], [], "no live objects" );
+
+$dir->txn_do( scope => 1, body => sub {
+    my $row = $dir->backend->schema->resultset("Foo")->find(1);
+
+    my $foo = Foo->new( obj => $row );
+
+    $dir->insert( with_dbic => $foo );
+
+});
+
+is_deeply( [ $dir->live_objects->live_objects ], [], "no live objects" );
+$dir->live_objects->clear;
+
+$dir->txn_do( scope => 1, body => sub {
+    my $foo = $dir->lookup("with_dbic");
+
+    isa_ok( $foo->obj, "DBIx::Class::Row" );
+    is( $foo->obj->id, 1, "ID" );
+});
+
+is_deeply( [ $dir->live_objects->live_objects ], [], "no live objects" );
+
+$dir->txn_do( scope => 1, body => sub {
+    my $foo = $dir->lookup('row:["Foo",3]');
+
+    isa_ok( $foo, "DBIx::Class::Row" );
+    is( $foo->id, 3, "ID" );
+});
+
+is_deeply( [ $dir->live_objects->live_objects ], [], "no live objects" );
 
 done_testing;

@@ -12,10 +12,13 @@ use MooseX::Types::Moose qw(ArrayRef HashRef Str Defined);
 use Moose::Util::TypeConstraints qw(enum);
 
 use Data::Stream::Bulk::DBI;
+use SQL::Abstract;
+use JSON;
+use Scalar::Util qw(weaken);
 
 use KiokuDB::Backend::DBI::Schema;
-
-use SQL::Abstract;
+use KiokuDB::TypeMap;
+use KiokuDB::TypeMap::Entry::DBIC::Row;
 
 use namespace::clean -except => 'meta';
 
@@ -56,6 +59,12 @@ sub BUILD {
 }
 
 has '+serializer' => ( default => "json" ); # to make dumps readable
+
+has json => (
+    isa => "Object",
+    is  => "ro",
+    default => sub { JSON->new },
+);
 
 has create => (
     isa => "Bool",
@@ -263,6 +272,14 @@ sub register_handle {
     $self->schema->_kiokudb_handle($kiokudb);
 }
 
+sub default_typemap {
+    KiokuDB::TypeMap->new(
+        isa_entries => {
+            'DBIx::Class::Row' => KiokuDB::TypeMap::Entry::DBIC::Row->new,
+        },
+    );
+}
+
 sub insert {
     my ( $self, @entries ) = @_;
 
@@ -292,7 +309,7 @@ sub insert {
 sub entries_to_rows {
     my ( $self, @entries ) = @_;
 
-    my ( %insert, %update );
+    my ( %insert, %update, @dbic );
 
     foreach my $t ( \%insert, \%update ) {
         foreach my $col ( @{ $self->_ordered_columns } ) {
@@ -301,12 +318,16 @@ sub entries_to_rows {
     }
 
     foreach my $entry ( @entries ) {
-        my $targ = $entry->prev ? \%update : \%insert;
+        if ( $entry->id =~ /^row:/ ) {
+            push @dbic, $entry->data;
+        } else {
+            my $targ = $entry->prev ? \%update : \%insert;
 
-        my $row = $self->entry_to_row($entry, $targ);
+            my $row = $self->entry_to_row($entry, $targ);
+        }
     }
 
-    return \( %insert, %update );
+    return \( %insert, %update, @dbic );
 }
 
 sub entry_to_row {
@@ -341,7 +362,7 @@ sub entry_to_row {
 }
 
 sub insert_rows {
-    my ( $self, $insert, $update ) = @_;
+    my ( $self, $insert, $update, $dbic ) = @_;
 
     $self->dbh_do(sub {
         my ( $storage, $dbh ) = @_;
@@ -383,6 +404,8 @@ sub insert_rows {
 
             $sth->finish;
         }
+
+        $_->insert_or_update for @$dbic;
     });
 }
 
@@ -427,36 +450,65 @@ sub update_index {
 }
 
 sub get {
-    my ( $self, @ids ) = @_;
-
-    return unless @ids;
+    my ( $self, @rows_and_ids ) = @_;
 
     my %entries;
 
-    $self->dbh_do(sub {
-        my ( $storage, $dbh ) = @_;
+    my ( @rows, @ids );
 
-        my $sth;
-
-        $sth = $dbh->prepare_cached("SELECT id, data FROM entries WHERE id IN (" . join(", ", ('?') x @ids) . ")");
-        $sth->execute(@ids);
-
-        $sth->bind_columns( \my ( $id, $data ) );
-
-        # not actually necessary but i'm keeping it around for reference:
-        #my ( $id, $data );
-        #use DBD::Pg qw(PG_BYTEA);
-        #$sth->bind_col(1, \$id);
-        #$sth->bind_col(2, \$data, { pg_type => PG_BYTEA });
-
-        while ( $sth->fetch ) {
-            $entries{$id} = $data;
+    for ( @rows_and_ids ) {
+        if ( /^row:/ ) {
+            push @rows, $_;
+        } else {
+            push @ids, $_;
         }
-    });
+    }
 
-    return if @ids != keys %entries; # ->rows only works after we're done
+    if ( @ids ) {
+        $self->dbh_do(sub {
+            my ( $storage, $dbh ) = @_;
 
-    return map { $self->deserialize($_) } @entries{@ids};
+            my $sth;
+
+            $sth = $dbh->prepare_cached("SELECT id, data FROM entries WHERE id IN (" . join(", ", ('?') x @ids) . ")");
+            $sth->execute(@ids);
+
+            $sth->bind_columns( \my ( $id, $data ) );
+
+            # not actually necessary but i'm keeping it around for reference:
+            #my ( $id, $data );
+            #use DBD::Pg qw(PG_BYTEA);
+            #$sth->bind_col(1, \$id);
+            #$sth->bind_col(2, \$data, { pg_type => PG_BYTEA });
+
+            while ( $sth->fetch ) {
+                $entries{$id} = $data;
+            }
+        });
+    }
+
+    if ( @rows ) {
+        my $schema = $self->schema;
+        my $json = $self->json;
+
+        foreach my $id ( @rows ) {
+            my ( $rs, @key ) = @{ $json->decode(substr($id,4)) };
+
+            my $obj = $schema->resultset($rs)->find(@key);
+
+            $entries{$id} = my $entry = KiokuDB::Entry->new(
+                id    => $id,
+                class => ref($obj),
+                data  => $obj,
+            );
+
+            # weaken($entry->{data}); # FIXME need to weaken it later
+        }
+    }
+
+    return if @rows_and_ids != keys %entries; # ->rows only works after we're done
+
+    map { ref($_) ? $_ : $self->deserialize($_) } @entries{@rows_and_ids};
 }
 
 sub delete {
