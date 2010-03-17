@@ -491,18 +491,66 @@ sub get {
         my $schema = $self->schema;
         my $json = $self->json;
 
+        my ( %keys, %ids );
+
         foreach my $id ( @rows ) {
-            my ( $rs, @key ) = @{ $json->decode(substr($id,4)) };
+            my ( $rs_name, @key ) = @{ $json->decode(substr($id,4)) };
 
-            my $obj = $schema->resultset($rs)->find(@key);
+            if ( @key > 2 ) {
+                # multi column primary keys need 'find'
+                my $obj = $schema->resultset($rs_name)->find(@key);
 
-            $entries{$id} = my $entry = KiokuDB::Entry->new(
-                id    => $id,
-                class => ref($obj),
-                data  => $obj,
-            );
+                $entries{$id} = KiokuDB::Entry->new(
+                    id    => $id,
+                    class => ref($obj),
+                    data  => $obj,
+                );
+            } else {
+                # for other objects we queue up IDs for a single SELECT
+                push @{ $keys{$rs_name} ||= [] }, $key[0];
+                push @{ $ids{$rs_name}  ||= [] }, $id;
+            }
+        }
 
-            # weaken($entry->{data}); # FIXME need to weaken it later
+        foreach my $rs_name ( keys %keys ) {
+            my $rs = $schema->resultset($rs_name);
+
+            my $ids = $ids{$rs_name};
+
+            my @objs;
+
+            if ( @$ids == 1 ) {
+                my $id = $ids->[0];
+
+                my $obj = $rs->find($keys{$rs_name}[0]) or return;
+
+                $entries{$id} = KiokuDB::Entry->new(
+                    id => $id,
+                    class => ref($obj),
+                    data => $obj,
+                );
+            } else {
+                my @pk = $rs->result_source->primary_columns;
+
+                my $keys = $keys{$rs_name};
+
+                my @objs = $rs->search({ $pk[0] => $keys })->all;
+
+                return if @objs != @$ids;
+
+                # this key lookup is because it's not returned in the same order
+                my %pk_to_id;
+                @pk_to_id{@{ $keys{$rs_name} }} = @$ids;
+
+                foreach my $obj ( @objs ) {
+                    my $id = $pk_to_id{$obj->id};
+                    $entries{$id} = KiokuDB::Entry->new(
+                        id    => $id,
+                        class => ref($obj),
+                        data  => $obj,
+                    );
+                }
+            }
         }
     }
 

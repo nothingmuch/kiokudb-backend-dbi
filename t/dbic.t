@@ -106,7 +106,6 @@ $dir->txn_do( scope => 1, body => sub {
 });
 
 is_deeply( [ $dir->live_objects->live_objects ], [], "no live objects" );
-$dir->live_objects->clear;
 
 $dir->txn_do( scope => 1, body => sub {
     my $foo = $dir->lookup("with_dbic");
@@ -122,6 +121,29 @@ $dir->txn_do( scope => 1, body => sub {
 
     isa_ok( $foo, "DBIx::Class::Row" );
     is( $foo->id, 3, "ID" );
+});
+
+is_deeply( [ $dir->live_objects->live_objects ], [], "no live objects" );
+
+$dir->txn_do( scope => 1, body => sub {
+    my $row = $dir->backend->schema->resultset("Foo")->find(2);
+
+    my $foo = Foo->new( obj => $row );
+
+    $dir->insert( another => $foo );
+
+});
+
+is_deeply( [ $dir->live_objects->live_objects ], [], "no live objects" );
+
+$dir->txn_do( scope => 1, body => sub {
+    # to cover the ->search branch (as opposed to ->find)
+    my @foo = $dir->lookup("with_dbic", "another");
+
+    isa_ok( $foo[0]->obj, "DBIx::Class::Row" );
+    is( $foo[0]->obj->id, 1, "ID" );
+    isa_ok( $foo[1]->obj, "DBIx::Class::Row" );
+    is( $foo[1]->obj->id, 2, "ID" );
 });
 
 is_deeply( [ $dir->live_objects->live_objects ], [], "no live objects" );
