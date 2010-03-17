@@ -1,3 +1,7 @@
+0.11_01
+    - DBIC schema integration
+    - FOR UPDATE added to SELECT queries on MySQL, PG and Oracle
+
 0.10
     - Added mysql_strict attribute, true by default, causes SQL's strict mode
       to be set
