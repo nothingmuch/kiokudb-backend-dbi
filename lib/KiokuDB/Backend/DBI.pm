@@ -552,13 +552,25 @@ sub insert_entry {
     die "Insertion to the GIN index is handled implicitly";
 }
 
+sub tables_exist {
+    my $self = shift;
+
+    $self->dbh_do(sub {
+        my ( $storage, $dbh ) = @_;
+
+        my $filter = ( $self->storage->sqlt_type eq 'SQLite' ? '%' : '' );
+
+        return ( @{ $dbh->table_info($filter, $filter, 'entries', 'TABLE')->fetchall_arrayref } > 0 );
+    });
+}
+
 sub create_tables {
     my $self = shift;
 
     $self->dbh_do(sub {
         my ( $storage, $dbh ) = @_;
 
-        unless ( @{ $dbh->table_info('%', '%', 'entries', 'TABLE')->fetchall_arrayref } ) {
+        unless ( $self->tables_exist ) {
             $self->deploy({ producer_args => { mysql_version => 4.1 } });
         }
     });
