@@ -148,4 +148,14 @@ $dir->txn_do( scope => 1, body => sub {
 
 is_deeply( [ $dir->live_objects->live_objects ], [], "no live objects" );
 
+$dir->txn_do( scope => 1, body => sub {
+    my $obj = $dir->backend->schema->resultset("entries")->find('with_dbic');
+
+    is( $dir->object_to_id($obj), 'with_dbic', "object to ID of row fetched using 'find'");
+    isa_ok( $obj, "Foo" );
+    isa_ok( $obj->obj, "DBIx::Class::Row" );
+});
+
+is_deeply( [ $dir->live_objects->live_objects ], [], "no live objects" );
+
 done_testing;
