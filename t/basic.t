@@ -9,13 +9,11 @@ BEGIN {
     plan skip_all => "DBD::SQLite  are required" unless eval { require DBI; require DBD::SQLite };
 }
 
-use Test::TempDir;
-
 use ok 'KiokuDB::Backend::DBI';
 use ok 'KiokuDB::Entry';
 
 my $b = KiokuDB::Backend::DBI->new(
-    dsn => 'dbi:SQLite:dbname=' . temp_root->file("db"),
+    dsn => 'dbi:SQLite:dbname=:memory:',
     columns => [qw(oi)],
 );
 

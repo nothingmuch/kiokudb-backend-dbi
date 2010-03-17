@@ -3,9 +3,11 @@
 package KiokuDB::Backend::DBI;
 use Moose;
 
-use MooseX::Types -declare => [qw(ValidColumnName)];
+use Moose::Util::TypeConstraints;
 
-use MooseX::Types::Moose qw(ArrayRef HashRef Str);
+use MooseX::Types -declare => [qw(ValidColumnName SchemaProto)];
+
+use MooseX::Types::Moose qw(ArrayRef HashRef Str Defined);
 
 use Moose::Util::TypeConstraints qw(enum);
 
@@ -36,6 +38,7 @@ my @reserved_cols = ( @std_cols, 'data' );
 my %reserved_cols = ( map { $_ => 1 } @reserved_cols );
 
 subtype ValidColumnName, as Str, where { not exists $reserved_cols{$_} };
+subtype SchemaProto, as Defined, where { !ref($_) || blessed($_) and $_->isa("DBIx::Class::Schema::KiokuDB") };
 
 sub new_from_dsn {
     my ( $self, $dsn, @args ) = @_;
@@ -64,7 +67,6 @@ has 'dsn' => (
     isa => "Str|CodeRef",
     is  => "ro",
 );
-
 
 has [qw(user password)] => (
     isa => "Str",
@@ -152,7 +154,13 @@ has schema => (
     isa => "DBIx::Class::Schema",
     is  => "ro",
     lazy_build => 1,
-    handles => [qw(deploy)],
+    handles => [qw(deploy kiokudb_entries_source_name)],
+);
+
+has schema_proto => (
+    isa => SchemaProto,
+    is  => "ro",
+    default => "KiokuDB::Backend::DBI::Schema",
 );
 
 has schema_hook => (
@@ -164,9 +172,11 @@ has schema_hook => (
 sub _build_schema {
     my $self = shift;
 
-    my $schema = KiokuDB::Backend::DBI::Schema->clone;
+    my $schema = $self->schema_proto->clone;
 
-    $schema->source("entries")->add_columns(@{ $self->columns });
+    unless ( $schema->kiokudb_entries_source_name ) {
+        $schema->define_kiokudb_schema( extra_entries_columns => $self->columns );
+    }
 
     if ( $self->has_schema_hook ) {
         my $h = $self->schema_hook;
@@ -200,7 +210,7 @@ has _columns => (
 sub _build__columns {
     my $self = shift;
 
-    my $rs = $self->schema->source("entries");
+    my $rs = $self->schema->source( $self->kiokudb_entries_source_name );
 
     my @user_cols = grep { not exists $reserved_cols{$_} } $rs->columns;
 
@@ -245,6 +255,12 @@ sub _build_sql_abstract {
     my $self = shift;
 
     SQL::Abstract->new;
+}
+
+sub register_handle {
+    my ( $self, $kiokudb ) = @_;
+
+    $self->schema->_kiokudb_handle($kiokudb);
 }
 
 sub insert {
@@ -898,6 +914,23 @@ schema emitted by L<SQL::Translator> will not work with the queries used.
 Drops the C<entries> and C<gin_index> tables.
 
 =back
+
+=head1 TROUBLESHOOTING
+
+=head2 I get C<unexpected end of string while parsing JSON string>
+
+You are problably using MySQL, which comes with a helpful data compression
+feature: when your serialized objects are larger than the maximum size of a
+C<BLOB> column MySQL will simply shorten it for you.
+
+Why C<BLOB> defaults to 64k, and how on earth someone would consider silent
+data truncation a sane default I could never fathom, but nevertheless MySQL
+does allow you to disable this by setting the "strict" SQL mode in the
+configuration.
+
+To resolve the actual problem (though this obviously won't repair your lost
+data), alter the entries table so that the C<data> column uses the nonstandard
+C<LONGBLOB> datatype.
 
 =head1 VERSION CONTROL
 
