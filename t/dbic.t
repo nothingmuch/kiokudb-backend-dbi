@@ -3,6 +3,7 @@
 use strict;
 use warnings;
 
+use Scalar::Util qw(refaddr);
 use Test::More;
 use Test::Exception;
 
@@ -117,7 +118,7 @@ $dir->txn_do( scope => 1, body => sub {
 is_deeply( [ $dir->live_objects->live_objects ], [], "no live objects" );
 
 $dir->txn_do( scope => 1, body => sub {
-    my $foo = $dir->lookup('row:["Foo",3]');
+    my $foo = $dir->lookup('dbic:row:["Foo",3]');
 
     isa_ok( $foo, "DBIx::Class::Row" );
     is( $foo->id, 3, "ID" );
@@ -154,6 +155,30 @@ $dir->txn_do( scope => 1, body => sub {
     is( $dir->object_to_id($obj), 'with_dbic', "object to ID of row fetched using 'find'");
     isa_ok( $obj, "Foo" );
     isa_ok( $obj->obj, "DBIx::Class::Row" );
+});
+
+is_deeply( [ $dir->live_objects->live_objects ], [], "no live objects" );
+
+$dir->txn_do( scope => 1, body => sub {
+    my $rs = $dir->backend->schema->resultset("Foo")->search({ id => [ 1, 3 ] });
+
+    my $foo = Foo->new( obj => $rs );
+
+    $dir->insert( with_rs => $foo );
+});
+
+is_deeply( [ $dir->live_objects->live_objects ], [], "no live objects" );
+
+$dir->txn_do( scope => 1, body => sub {
+    my $foo = $dir->lookup("with_rs");
+
+    isa_ok( $foo, "Foo" );
+
+    isa_ok( my $rs = $foo->obj, "DBIx::Class::ResultSet" );
+
+    is( refaddr($rs->result_source->schema), refaddr($dir->backend->schema), "schema restored" );
+
+    is_deeply( [ $rs->all ], [ $dir->backend->schema->resultset("Foo")->search({ id => [ 1, 3 ]})->all ], "result set works" );
 });
 
 is_deeply( [ $dir->live_objects->live_objects ], [], "no live objects" );
