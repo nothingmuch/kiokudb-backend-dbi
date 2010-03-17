@@ -188,6 +188,28 @@ has storage => (
 
 sub _build_storage { shift->schema->storage }
 
+has for_update => (
+    isa => "Bool",
+    is  => "ro",
+    default => 1,
+);
+
+has _for_update => (
+    isa => "Bool",
+    is  => "ro",
+    lazy_build => 1,
+);
+
+sub _build__for_update {
+    my $self = shift;
+
+    return (
+        $self->for_update
+            and
+        $self->storage->sqlt_type =~ /^(?:MySQL|Oracle|PostgreSQL)$/
+    );
+}
+
 has columns => (
     isa => ArrayRef[ValidColumnName|HashRef],
     is  => "ro",
@@ -371,6 +393,12 @@ sub insert_rows {
     });
 }
 
+sub prepare_select {
+    my ( $self, $dbh, $stmt ) = @_;
+
+    $dbh->prepare_cached($stmt . ( $self->_for_update ? " FOR UPDATE" : "" ));
+}
+
 sub prepare_insert {
     my ( $self, $dbh ) = @_;
 
@@ -422,10 +450,10 @@ sub get {
         my $sth;
 
         if ( @ids ) {
-            $sth = $dbh->prepare_cached("SELECT id, data FROM entries WHERE id IN (" . join(", ", ('?') x @ids) . ")");
+            $sth = $self->prepare_select($dbh, "SELECT id, data FROM entries WHERE id IN (" . join(", ", ('?') x @ids) . ")");
             $sth->execute(@ids);
         } else {
-            $sth = $dbh->prepare_cached("SELECT id, data FROM entries");
+            $sth = $self->prepare_select($dbh, "SELECT id, data FROM entries");
             $sth->execute;
         }
 
@@ -478,7 +506,7 @@ sub exists {
     $self->dbh_do(sub {
         my ( $storage, $dbh ) = @_;
 
-        my $sth = $dbh->prepare_cached("SELECT id FROM entries WHERE id IN (" . join(", ", ('?') x @ids) . ")");
+        my $sth = $self->prepare_select($dbh, "SELECT id FROM entries WHERE id IN (" . join(", ", ('?') x @ids) . ")");
         $sth->execute(@ids);
 
         $sth->bind_columns( \( my $id ) );
@@ -839,6 +867,16 @@ argument just before connecting.
 
 If you need to modify the schema in some way (adding indexes or constraints)
 this is where it should be done.
+
+=item for_update
+
+If true (the defaults), will cause all select statement to be issued with a
+C<FOR UPDATE> modifier on MySQL, Postgres and Oracle.
+
+This is highly reccomended because these database provide low isolation
+guarantees as configured out the box, and highly interlinked graph databases
+are much more susceptible to corruption because of lack of transcational
+isolation than normalized relational databases.
 
 =item sqlite_sync_mode
 
