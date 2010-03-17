@@ -116,3 +116,91 @@ sub define_kiokudb_gin_index_resultsource {
 __PACKAGE__
 
 __END__
+
+=pod
+
+=head1 NAME
+
+DBIx::Class::Schema::KiokuDB - Hybrid L<KiokuDB>/L<DBIx::Class::Schema> schema
+support.
+
+=head1 SYNOPSIS
+
+Load this component into the schema:
+
+    package MyApp::DB;
+    use base qw(DBIx::Class::Schema);
+
+    __PACKAGE__->load_components(qw(Schema::KiokuDB));
+
+    __PAKCAGE__->load_namespaces;
+
+Then load the L<DBIx::Class::KiokuDB> component into every table that wants to
+refer to arbitrary KiokuDB objects:
+
+    package MyApp::DB::Result::Album;
+    use base qw(DBIx::Class);
+
+    __PACKAGE__>load_components(qw(Core KiokuDB));
+
+    __PACKAGE__->table('album');
+
+    __PACKAGE__->add_columns(
+        id => { data_type => "integer" },
+        title => { data_type => "varchar" },
+
+        # the foreign key for the KiokuDB object:
+        metadata => { data_type => "varchar" },
+    );
+
+    __PACKAGE__->set_primary_key('id');
+
+    # enable a KiokuDB rel on the column:
+    __PACKAGE__->kiokudb_column('metadata');
+
+Connect to the DSN:
+
+    my $dir = KiokuDB->connect(
+        'dbi:SQLite:dbname=:memory:',
+        schema_proto => "MyApp::DB",
+        create => 1,
+    );
+
+    # get the connect DBIC schema instance
+    my $schema = $dir->backend->schema;
+
+Then you can freely refer to KiokuDB objects from your C<Album> class:
+
+    $dir->txn_do(scope => 1, body => sub {
+
+        $schema->resultset("Album")->create({
+            title => "Blah blah",
+            metadata => $any_object,
+        });
+    });
+
+=head1 DESCRIPTION
+
+This class provides the schema definition support code required for integrating
+an arbitrary L<DBIx::Class::Schema> with L<KiokuDB::Backend::DBI>.
+
+=head1 USAGE AND LIMITATIONS
+
+L<KiokuDB> managed objects may hold references to row objects, resultsets
+(treated as saved searches, or results or cursor state is saved), result source
+handles, and the schema.
+
+Foreign L<DBIx::Class> objects, that is ones that originated from a schema that
+isn't the underlying schema are currently not supported, but this limitation
+may be lifted in the future.
+
+All DBIC operations which may implicitly cause a lookup of a L<KIokuDB> managed
+object require live object scope management, just as normal.
+
+It is reccomended to use L<KiokuDB/txn_do> because that will invoke the
+appropriate transaction hooks on both layers, as opposed to just in
+L<DBIx::Class>.
+
+=head1 SEE ALSO
+
+L<DBIx::Class::KiokuDB>, L<KiokuDB::Backend::DBI>.

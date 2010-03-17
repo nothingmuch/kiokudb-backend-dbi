@@ -163,3 +163,94 @@ sub store_kiokudb_column {
 __PACKAGE__
 
 __END__
+
+=pod
+
+=head1 NAME
+
+DBIx::Class::Schema::KiokuDB - Refer to L<KiokuDB> objects from L<DBIx::Class>
+tables.
+
+=head1 SYNOPSIS
+
+See L<DBIx::Class::Schema::KiokuDB>.
+
+    package MyApp::DB::Result::Album;
+    use base qw(DBIx::Class);
+
+    __PACKAGE__>load_components(qw(Core KiokuDB));
+
+    __PACKAGE__->table('album');
+
+    __PACKAGE__->add_columns(
+        id => { data_type => "integer" },
+        title => { data_type => "varchar" },
+
+        # the foreign key for the KiokuDB object:
+        metadata => { data_type => "varchar" },
+    );
+
+    __PACKAGE__->set_primary_key('id');
+
+    # enable a KiokuDB rel on the column:
+    __PACKAGE__->kiokudb_column('metadata');
+
+=head1 DESCRIPTION
+
+This L<DBIx::Class> component provides the code necessary for
+L<DBIx::Class::Row> objects to refer to L<KiokuDB> objects stored in
+L<KiokuDB::Backend::DBI>.
+
+=head1 CLASS METHODS
+
+=over 4
+
+=item kiokudb_column $rel
+
+Declares a relationship to any L<KiokuDB> object.
+
+In future versions adding relationships to different sub-collections will be
+possible as well.
+
+=back
+
+=head1 METHODS
+
+=over 4
+
+=item store
+
+A convenience method that calls L<KiokuDB/store> on all referenced L<KiokuDB>
+objects, and then invokes C<insert_or_update> on C<$self>.
+
+=item get_kiokudb_column $col
+
+=item set_kiokudb_column $col, $obj
+
+=item store_kiokudb_column $col, $obj
+
+See L<DBIx::Class::Row>.
+
+=back
+
+=head1 OVERRIDDEN METHODS
+
+=over 4
+
+=item new
+
+Recognizes objects passed in as column values, much like standard relationships
+do.
+
+=item insert
+
+Also calls L<KiokuDB/insert> on all referenced objects that are not in the
+L<KiokuDB> storage.
+
+=item update
+
+Adds a check to ensure that all referenced L<KiokuDB> objects are in storage.
+
+=back
+
+
