@@ -42,6 +42,7 @@ foreach my $dsn (
                     },
                 ],
                 extract => Search::GIN::Extract::Class->new,
+                sqlite_sync_mode => 'OFF',
             );
         };
 
