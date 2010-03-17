@@ -215,6 +215,28 @@ has storage => (
 
 sub _build_storage { shift->schema->storage }
 
+has for_update => (
+    isa => "Bool",
+    is  => "ro",
+    default => 1,
+);
+
+has _for_update => (
+    isa => "Bool",
+    is  => "ro",
+    lazy_build => 1,
+);
+
+sub _build__for_update {
+    my $self = shift;
+
+    return (
+        $self->for_update
+            and
+        $self->storage->sqlt_type =~ /^(?:MySQL|Oracle|PostgreSQL)$/
+    );
+}
+
 has columns => (
     isa => ArrayRef[ValidColumnName|HashRef],
     is  => "ro",
@@ -466,12 +488,18 @@ sub insert_rows {
     $g->commit;
 }
 
+sub prepare_select {
+    my ( $self, $dbh, $stmt ) = @_;
+
+    $dbh->prepare_cached($stmt . ( $self->_for_update ? " FOR UPDATE" : "" ), {}, 3); # 3 = don't use if still Active
+}
+
 sub prepare_insert {
     my ( $self, $dbh ) = @_;
 
     my @cols = @{ $self->_ordered_columns };
 
-    my $ins = $dbh->prepare("INSERT INTO entries (" . join(", ", @cols) . ") VALUES (" . join(", ", ('?') x @cols) . ")");
+    my $ins = $dbh->prepare_cached("INSERT INTO entries (" . join(", ", @cols) . ") VALUES (" . join(", ", ('?') x @cols) . ")");
 
     return ( $ins, @cols );
 }
@@ -481,7 +509,7 @@ sub prepare_update {
 
     my ( $id, @cols ) = @{ $self->_ordered_columns };
 
-    my $upd = $dbh->prepare("UPDATE entries SET " . join(", ", map { "$_ = ?" } @cols) . " WHERE $id = ?");
+    my $upd = $dbh->prepare_cached("UPDATE entries SET " . join(", ", map { "$_ = ?" } @cols) . " WHERE $id = ?");
 
     return ( $upd, @cols, $id );
 }
@@ -568,7 +596,7 @@ sub get {
             my $batch_size = $self->batch_size || scalar(@$ids);
 
             while ( my @batch_ids = splice(@ids_copy, 0, $batch_size) ) {
-                my $sth = $dbh->prepare_cached("SELECT id, data FROM entries WHERE id IN (" . join(", ", ('?') x @batch_ids) . ")");
+                my $sth = $self->prepare_select($dbh, "SELECT id, data FROM entries WHERE id IN (" . join(", ", ('?') x @batch_ids) . ")");
                 $sth->execute(@batch_ids);
 
                 $sth->bind_columns( \my ( $id, $data ) );
@@ -718,7 +746,7 @@ sub exists {
 
             my @ids_copy = @$ids;
             while ( my @batch_ids = splice @ids_copy, 0, $batch_size ) {
-                my $sth = $dbh->prepare_cached("SELECT id FROM entries WHERE id IN (" . join(", ", ('?') x @batch_ids) . ")");
+                my $sth = $self-> prepare_select ( $dbh, "SELECT id FROM entries WHERE id IN (" . join(", ", ('?') x @batch_ids) . ")");
                 $sth->execute(@batch_ids);
 
                 $sth->bind_columns( \( my $id ) );
@@ -782,7 +810,7 @@ sub _sth_stream {
 
     $self->dbh_do(sub {
         my ( $storage, $dbh ) = @_;
-        my $sth = $dbh->prepare($sql); # can't prepare cached, we don't know when it will be done
+        my $sth = $self->prepare_select($dbh, $sql);
 
         $sth->execute(@bind);
 
@@ -1151,6 +1179,16 @@ argument just before connecting.
 
 If you need to modify the schema in some way (adding indexes or constraints)
 this is where it should be done.
+
+=item for_update
+
+If true (the defaults), will cause all select statement to be issued with a
+C<FOR UPDATE> modifier on MySQL, Postgres and Oracle.
+
+This is highly reccomended because these database provide low isolation
+guarantees as configured out the box, and highly interlinked graph databases
+are much more susceptible to corruption because of lack of transcational
+isolation than normalized relational databases.
 
 =item sqlite_sync_mode
 
