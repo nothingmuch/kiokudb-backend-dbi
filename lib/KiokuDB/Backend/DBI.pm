@@ -7,6 +7,8 @@ use MooseX::Types -declare => [qw(ValidColumnName)];
 
 use MooseX::Types::Moose qw(ArrayRef HashRef Str);
 
+use Moose::Util::TypeConstraints qw(enum);
+
 use Data::Stream::Bulk::DBI;
 
 use KiokuDB::Backend::DBI::Schema;
@@ -76,6 +78,67 @@ has dbi_attrs => (
     is  => "ro",
 );
 
+
+has mysql_strict => (
+    isa => "Bool",
+    is  => "ro",
+    default => 1,
+);
+
+has sqlite_sync_mode => (
+    isa => enum([qw(0 1 2 OFF NORMAL FULL off normal full)]),
+    is  => "ro",
+    predicate => "has_sqlite_fsync_mode",
+);
+
+has on_connect_call => (
+    isa => "ArrayRef",
+    is  => "ro",
+    lazy_build => 1,
+);
+
+sub _build_on_connect_call {
+    my $self = shift;
+
+    my @call;
+
+    if ( $self->mysql_strict ) {
+        push @call, sub {
+            my $storage = shift;
+
+            if ( $storage->can("connect_call_set_strict_mode") ) {
+                $storage->connect_call_set_strict_mode;
+            }
+        };
+    };
+
+    if ( $self->has_sqlite_fsync_mode ) {
+        push @call, sub {
+            my $storage = shift;
+
+            if ( $storage->sqlt_type eq 'SQLite' ) {
+                $storage->dbh_do(sub { $_[1]->do("PRAGMA synchronous=" . $self->sqlite_sync_mode) });
+            }
+        };
+    }
+
+    return \@call;
+}
+
+has dbic_attrs => (
+    isa => "HashRef",
+    is  => "ro",
+    lazy_build => 1,
+);
+
+sub _build_dbic_attrs {
+    my $self = shift;
+
+    return {
+        on_connect_call => $self->on_connect_call,
+    };
+}
+
 has connect_info => (
     isa => ArrayRef,
     is  => "ro",
@@ -85,7 +148,7 @@ has connect_info => (
 sub _build_connect_info {
     my $self = shift;
 
-    return [ $self->dsn, $self->user, $self->password, $self->dbi_attrs ];
+    return [ $self->dsn, $self->user, $self->password, $self->dbi_attrs, $self->dbic_attrs ];
 }
 
 has schema => (
@@ -776,6 +839,37 @@ argument just before connecting.
 
 If you need to modify the schema in some way (adding indexes or constraints)
 this is where it should be done.
+
+=item sqlite_sync_mode
+
+If this attribute is set and the underlying database is SQLite, then
+C<PRAGMA syncrhonous=...> will be issued with this value.
+
+Can be C<OFF>, C<NORMAL> or C<FULL> (SQLite's default), or 0, 1, or 2.
+
+See L<http://www.sqlite.org/pragma.html#pragma_synchronous>.
+
+=item mysql_strict
+
+If true (the default), sets MySQL's strict mode.
+
+This is B<HIGHLY> reccomended, or you may enjoy some of MySQL's more
+interesting features, like automatic data loss when the columns are too narrow.
+
+=item on_connect_call
+
+See L<DBIx::Class::Storage::DBI>.
+
+This attribute is constructed based on the values of C<mysql_version> and
+C<sqlite_sync_mode>, but may be overridden if you need more control.
+
+=item dbic_attrs
+
+See L<DBIx::Class::Storage::DBI>.
+
+Defaults to
+
+    { on_connect_call => $self->on_connect_call }
 
 =back
 
