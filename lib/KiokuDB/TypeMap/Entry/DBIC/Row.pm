@@ -33,12 +33,10 @@ sub compile {
                         $collapser->visit(@objs);
                     }
 
-                    my $entry = $collapser->make_entry(
+                    return $collapser->make_entry(
                         %args,
                         data => $obj,
                     );
-
-                    return $entry;
                 },
                 @args,
             );
@@ -55,7 +53,7 @@ sub compile {
         id_method => sub {
             my ( $self, $object ) = @_;
 
-            return 'row:' . $json->encode([ $object->result_source->source_name, $object->id ]);
+            return 'dbic:row:' . $json->encode([ $object->result_source->source_name, $object->id ]);
         },
         refresh_method => sub {
             my ( $linker, $object, $entry, @args ) = @_;
