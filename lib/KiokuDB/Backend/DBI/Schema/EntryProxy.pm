@@ -15,7 +15,8 @@ sub inflate_result {
     if ( ref( my $obj = $handle->id_to_object( $data->{id} ) )  ) {
         return $obj;
     } else {
-        $handle->lookup($data->{id}); # FIXME we have the data, might as well use it
+        my $entry = $handle->backend->deserialize($data->{data});
+        return $handle->linker->expand_object($entry);
     }
 }
 
