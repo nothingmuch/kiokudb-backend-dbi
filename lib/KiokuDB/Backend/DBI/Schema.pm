@@ -34,6 +34,10 @@ $entries->sqlt_deploy_callback(sub {
   my ($source, $sqlt_table) = @_;
 
   $sqlt_table->extra->{mysql_table_type} = "InnoDB";
+
+  if ( $source->schema->storage->sqlt_type eq 'MySQL' ) {
+    $sqlt_table->get_field('data')->data_type('longblob');
+  }
 });
 
 $gin_index->sqlt_deploy_callback(sub {
