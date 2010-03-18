@@ -168,7 +168,7 @@ __END__
 
 =head1 NAME
 
-DBIx::Class::Schema::KiokuDB - Refer to L<KiokuDB> objects from L<DBIx::Class>
+DBIx::Class::KiokuDB - Refer to L<KiokuDB> objects from L<DBIx::Class>
 tables.
 
 =head1 SYNOPSIS
