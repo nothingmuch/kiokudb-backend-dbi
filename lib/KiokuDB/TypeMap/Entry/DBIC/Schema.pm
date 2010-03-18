@@ -57,3 +57,21 @@ __PACKAGE__->meta->make_immutable;
 __PACKAGE__
 
 __END__
+
+=pod
+
+=head1 NAME
+
+KiokuDB::TypeMap::Entry::DBIC::Schema - L<KiokuDB::TypeMap::Entry> for
+L<DBIx::Class::Schema> objects.
+
+=head1 DESCRIPTION
+
+This typemap entry handles references to L<DBIx::Class::Schema> as a scoped
+singleton.
+
+The ID of the schema is always C<dbic:schema>.
+
+References to L<DBIx::Class::Schema> objects which are not a part of the
+underlying L<DBIx::Class> layout are currently not supported, but may be in the
+future.
