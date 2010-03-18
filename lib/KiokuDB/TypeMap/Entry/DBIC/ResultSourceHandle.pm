@@ -60,3 +60,23 @@ __PACKAGE__->meta->make_immutable;
 __PACKAGE__
 
 __END__
+
+=pod
+
+=head1 NAME
+
+KiokuDB::TypeMap::Entry::DBIC::ResultSourceHandle - L<KiokuDB::TypeMap::Entry>
+for L<DBIx::Class::ResultSourceHandle> objects.
+
+=head1 DESCRIPTION
+
+This tyepmap entry resolves result source handles symbolically by name.
+
+References to the handle receive a special ID in the form:
+
+    dbic:schema:rs:$name
+
+and are not actually written to storage.
+
+Looking up such an ID causes the backend to dynamically search for such a
+resultset in the L<DBIx::Class::Schema>.
