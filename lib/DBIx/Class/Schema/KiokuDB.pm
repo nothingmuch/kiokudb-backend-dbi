@@ -3,7 +3,7 @@ package DBIx::Class::Schema::KiokuDB;
 use strict;
 use warnings;
 
-use KiokuDB::Backend::DBI::Schema::EntryProxy;
+use DBIx::Class::KiokuDB::EntryProxy;
 use DBIx::Class::ResultSource::Table;
 
 use Scalar::Util qw(weaken);
@@ -32,7 +32,7 @@ sub define_kiokudb_schema {
         schema          => $self,
         entries_table   => "entries",
         gin_index_table => "gin_index",
-        result_class    => "KiokuDB::Backend::DBI::Schema::EntryProxy",
+        result_class    => "DBIx::Class::KiokuDB::EntryProxy",
         gin_index       => 1,
         @args,
     );
