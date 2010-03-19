@@ -71,3 +71,27 @@ __PACKAGE__->meta->make_immutable;
 __PACKAGE__
 
 __END__
+
+=pod
+
+=head1 NAME
+
+KiokuDB::TypeMap::Entry::DBIC::Row - L<KiokuDB::TypeMap::Entry> for
+L<DBIx::Class::Row> objects.
+
+=head1 DESCRIPTION
+
+L<DBIx::Class::Row> objects are resolved symbolically using the special ID
+format:
+
+    dbic:row:$json
+
+The C<$json> string is a serialization of:
+
+    [ $result_source_name, @primary_key_values ]
+
+The row objects are not actually written to the KiokuDB storage, as they are
+already present in the other tables.
+
+Looking up an object with such an ID is a dynamic lookup that delegates to the
+L<DBIx::Class::Schema> and resultsets.
