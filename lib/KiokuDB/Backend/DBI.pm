@@ -25,7 +25,7 @@ use KiokuDB::TypeMap::Entry::DBIC::Schema;
 
 use namespace::clean -except => 'meta';
 
-our $VERSION = "1.11_01";
+our $VERSION = "1.11_02";
 
 with qw(
     KiokuDB::Backend
