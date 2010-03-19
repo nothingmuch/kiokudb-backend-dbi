@@ -1,3 +1,9 @@
+0.11_02
+    - Dependency tweaks
+    - More docs
+    - pod fixes
+    - rename EntryProxy under DBIx::Class::KiokuDB::EntryProxy
+
 0.11_01
     - DBIC schema integration
     - FOR UPDATE added to SELECT queries on MySQL, PG and Oracle
