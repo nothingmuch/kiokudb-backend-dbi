@@ -11,10 +11,11 @@ use MooseX::Types::Moose qw(ArrayRef HashRef Str Defined);
 
 use Moose::Util::TypeConstraints qw(enum);
 
+use Try::Tiny;
 use Data::Stream::Bulk::DBI;
 use SQL::Abstract;
 use JSON;
-use Scalar::Util qw(weaken);
+use Scalar::Util qw(weaken refaddr);
 
 use KiokuDB::Backend::DBI::Schema;
 use KiokuDB::TypeMap;
@@ -331,7 +332,7 @@ sub entries_to_rows {
     foreach my $entry ( @entries ) {
         my $id = $entry->id;
 
-        if ( $id =~ /^dbic:schema:/ ) {
+        if ( $id =~ /^dbic:schema/ ) {
             next;
         } elsif ( $id =~ /^dbic:row:/ ) {
             push @dbic, $entry->data;
@@ -464,24 +465,20 @@ sub update_index {
     });
 }
 
-sub get {
-    my ( $self, @rows_and_ids ) = @_;
+sub _parse_dbic_key {
+    my ( $self, $key ) = @_;
 
-    my %entries;
+    @{ $self->json->decode(substr($key,length('dbic:row:'))) };
+}
 
-    my ( @rows, @ids );
+sub _part_rows_and_ids {
+    my ( $self, $rows_and_ids ) = @_;
 
-    for ( @rows_and_ids ) {
+    my ( @rows, @ids, @special );
+
+    for ( @$rows_and_ids ) {
         if ( /^dbic:schema/ ) {
-            # schema objects aren't actually written into the DB
-            # FIXME special case FSCK
-            $entries{$_} = KiokuDB::Entry->new(
-                id    => $_,
-                ( $_ eq 'dbic:schema'
-                    ? ( class => 'DBIx::Class::Schema', data => $self->schema )
-                    : ( class => 'DBIx::Class::ResultSourceHandle', data => undef )
-                )
-            );
+            push @special, $_;
         } elsif ( /^dbic:row:/ ) {
             push @rows, $_;
         } else {
@@ -489,14 +486,44 @@ sub get {
         }
     }
 
-    if ( @ids ) {
+    return \( @rows, @ids, @special );
+}
+
+sub _group_dbic_keys {
+    my ( $self, $keys, $mkey_handler ) = @_;
+
+    my ( %keys, %ids );
+
+    foreach my $id ( @$keys ) {
+        my ( $rs_name, @key ) = $self->_parse_dbic_key($id);
+
+        if ( @key > 1 ) {
+            $mkey_handler->($id, $rs_name, @key);
+        } else {
+            # for other objects we queue up IDs for a single SELECT
+            push @{ $keys{$rs_name} ||= [] }, $key[0];
+            push @{ $ids{$rs_name}  ||= [] }, $id;
+        }
+    }
+
+    return \( %keys, %ids );
+}
+
+sub get {
+    my ( $self, @rows_and_ids ) = @_;
+
+    my %entries;
+
+    my ( $rows, $ids, $special ) = $self->_part_rows_and_ids(\@rows_and_ids);
+
+    if ( @$ids ) {
         $self->dbh_do(sub {
             my ( $storage, $dbh ) = @_;
 
             my $sth;
 
-            $sth = $dbh->prepare_cached("SELECT id, data FROM entries WHERE id IN (" . join(", ", ('?') x @ids) . ")");
-            $sth->execute(@ids);
+            $sth = $dbh->prepare_cached("SELECT id, data FROM entries WHERE id IN (" . join(", ", ('?') x @$ids) . ")");
+            $sth->execute(@$ids);
 
             $sth->bind_columns( \my ( $id, $data ) );
 
@@ -512,42 +539,38 @@ sub get {
         });
     }
 
-    if ( @rows ) {
+    if ( @$rows ) {
         my $schema = $self->schema;
-        my $json = $self->json;
 
-        my ( %keys, %ids );
+        my $err = \"foo";
+        my ( $rs_keys, $rs_ids ) = try {
+            $self->_group_dbic_keys( $rows, sub {
+                my ( $id, $rs_name, @key ) = @_;
 
-        foreach my $id ( @rows ) {
-            my ( $rs_name, @key ) = @{ $json->decode(substr($id,length('dbic:row:'))) };
-
-            if ( @key > 2 ) {
                 # multi column primary keys need 'find'
-                my $obj = $schema->resultset($rs_name)->find(@key);
+                my $obj = $schema->resultset($rs_name)->find(@key) or die $err; # die to stop search
 
                 $entries{$id} = KiokuDB::Entry->new(
                     id    => $id,
                     class => ref($obj),
                     data  => $obj,
                 );
-            } else {
-                # for other objects we queue up IDs for a single SELECT
-                push @{ $keys{$rs_name} ||= [] }, $key[0];
-                push @{ $ids{$rs_name}  ||= [] }, $id;
-            }
-        }
+            });
+        } catch {
+            die $_ if ref $_ and refaddr($_) == refaddr($err);
+        } or return;
 
-        foreach my $rs_name ( keys %keys ) {
+        foreach my $rs_name ( keys %$rs_keys ) {
             my $rs = $schema->resultset($rs_name);
 
-            my $ids = $ids{$rs_name};
+            my $ids = $rs_ids->{$rs_name};
 
             my @objs;
 
             if ( @$ids == 1 ) {
                 my $id = $ids->[0];
 
-                my $obj = $rs->find($keys{$rs_name}[0]) or return;
+                my $obj = $rs->find($rs_keys->{$rs_name}[0]) or return;
 
                 $entries{$id} = KiokuDB::Entry->new(
                     id => $id,
@@ -555,17 +578,17 @@ sub get {
                     data => $obj,
                 );
             } else {
-                my @pk = $rs->result_source->primary_columns;
+                my ($pk) = $rs->result_source->primary_columns;
 
-                my $keys = $keys{$rs_name};
+                my $keys = $rs_keys->{$rs_name};
 
-                my @objs = $rs->search({ $pk[0] => $keys })->all;
+                my @objs = $rs->search({ $pk => $keys })->all;
 
                 return if @objs != @$ids;
 
                 # this key lookup is because it's not returned in the same order
                 my %pk_to_id;
-                @pk_to_id{@{ $keys{$rs_name} }} = @$ids;
+                @pk_to_id{@$keys} = @$ids;
 
                 foreach my $obj ( @objs ) {
                     my $id = $pk_to_id{$obj->id};
@@ -579,6 +602,17 @@ sub get {
         }
     }
 
+    for ( @$special ) {
+        $entries{$_} = KiokuDB::Entry->new(
+            id => $_,
+            $_ eq 'dbic:schema'
+                ? ( data => $self->schema,
+                    class => "DBIx::Class::Schema" )
+                : ( data => undef,
+                    class => "DBIx::Class::ResultSourceHandle" )
+        );
+    }
+
     return if @rows_and_ids != keys %entries; # ->rows only works after we're done
 
     map { ref($_) ? $_ : $self->deserialize($_) } @entries{@rows_and_ids};
@@ -587,7 +621,7 @@ sub get {
 sub delete {
     my ( $self, @ids_or_entries ) = @_;
 
-    return unless @ids_or_entries;
+    # FIXME special DBIC rows
 
     my @ids = map { ref($_) ? $_->id : $_ } @ids_or_entries;
 
@@ -610,24 +644,61 @@ sub delete {
 }
 
 sub exists {
-    my ( $self, @ids ) = @_;
+    my ( $self, @rows_and_ids ) = @_;
 
-    return unless @ids;
+    return unless @rows_and_ids;
+
+    my $schema = $self->schema;
 
     my %entries;
 
-    $self->dbh_do(sub {
-        my ( $storage, $dbh ) = @_;
+    my ( $rows, $ids, $special ) = $self->_part_rows_and_ids(\@rows_and_ids);
 
-        my $sth = $dbh->prepare_cached("SELECT id FROM entries WHERE id IN (" . join(", ", ('?') x @ids) . ")");
-        $sth->execute(@ids);
+    if ( @$ids ) {
+        $self->dbh_do(sub {
+            my ( $storage, $dbh ) = @_;
 
-        $sth->bind_columns( \( my $id ) );
+            my $sth = $dbh->prepare_cached("SELECT id FROM entries WHERE id IN (" . join(", ", ('?') x @$ids) . ")");
+            $sth->execute(@$ids);
 
-        $entries{$id} = undef while $sth->fetch;
-    });
+            $sth->bind_columns( \( my $id ) );
 
-    map { exists $entries{$_} } @ids;
+            $entries{$id} = 1 while $sth->fetch;
+        });
+    }
+
+    if ( @$rows ) {
+        my ( $rs_keys, $rs_ids ) = $self->_group_dbic_keys( $rows, sub {
+            my ( $id, $rs_name, @key ) = @_;
+            $entries{$id} = defined $schema->resultset($rs_name)->find(@key); # FIXME slow
+        });
+
+        foreach my $rs_name ( keys %$rs_keys ) {
+            my $rs = $schema->resultset($rs_name);
+
+            my $ids = $rs_ids->{$rs_name};
+            my $keys = $rs_keys->{$rs_name};
+
+            my ( $pk ) = $rs->result_source->primary_columns;
+
+            my @exists = $rs->search({ $pk => $keys })->get_column($pk)->all;
+
+            my %pk_to_id;
+            @pk_to_id{@$keys} = @$ids;
+
+            @entries{@pk_to_id{@exists}} = ( (1) x @exists );
+        }
+    }
+
+    for ( @$special ) {
+        if ( $_ eq 'dbic:schema' ) {
+            $entries{$_} = 1;
+        } elsif ( /^dbic:schema:(.*)/ ) {
+            $entries{$_} = defined try { $schema->source($1) };
+        }
+    }
+
+    return @entries{@rows_and_ids};
 }
 
 sub txn_begin    { shift->storage->txn_begin(@_) }
