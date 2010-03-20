@@ -118,6 +118,8 @@ $dir->txn_do( scope => 1, body => sub {
 is_deeply( [ $dir->live_objects->live_objects ], [], "no live objects" );
 
 $dir->txn_do( scope => 1, body => sub {
+    ok( $dir->exists('dbic:row:["Foo",3]'), "dbic row exists" );
+
     my $foo = $dir->lookup('dbic:row:["Foo",3]');
 
     isa_ok( $foo, "DBIx::Class::Row" );

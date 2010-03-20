@@ -95,6 +95,8 @@ sub _kiokudb_id_to_object {
 sub _kiokudb_object_to_id {
     my ( $self, $object ) = @_;
 
+    confess unless ref $object;
+
     my $dir = $self->result_source->schema->kiokudb_handle;
 
     if ( my $id = $dir->object_to_id($object) ) {
