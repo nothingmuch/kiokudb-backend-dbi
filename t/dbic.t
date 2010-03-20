@@ -41,7 +41,7 @@ BEGIN {
 
 my $dir = KiokuDB->connect(
     'dbi:SQLite:dbname=:memory:',
-    schema_proto => "MyApp::DB",
+    schema => "MyApp::DB",
     create => 1,
 );
 
