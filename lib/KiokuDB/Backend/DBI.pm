@@ -47,10 +47,14 @@ my @reserved_cols = ( @std_cols, 'data' );
 my %reserved_cols = ( map { $_ => 1 } @reserved_cols );
 
 subtype ValidColumnName, as Str, where { not exists $reserved_cols{$_} };
-subtype SchemaProto, as Defined, where { !ref($_) || blessed($_) and $_->isa("DBIx::Class::Schema::KiokuDB") };
+subtype SchemaProto, as Defined, where {
+    Class::MOP::load_class($_) unless ref;
+    !ref($_) || blessed($_) and $_->isa("DBIx::Class::Schema::KiokuDB");
+};
 
 sub new_from_dsn {
     my ( $self, $dsn, @args ) = @_;
+    @args = %{ $args[0] } if @args == 1 and ref $args[0] eq 'HASH';
     $self->new( dsn => "dbi:$dsn", @args );
 }
 
@@ -169,13 +173,15 @@ has schema => (
     isa => "DBIx::Class::Schema",
     is  => "ro",
     lazy_build => 1,
-    handles => [qw(deploy kiokudb_entries_source_name)],
+    init_arg => "actual_schema",
+    handles  => [qw(deploy kiokudb_entries_source_name)],
 );
 
 has schema_proto => (
     isa => SchemaProto,
     is  => "ro",
-    default => "KiokuDB::Backend::DBI::Schema",
+    init_arg => "schema",
+    default  => "KiokuDB::Backend::DBI::Schema",
 );
 
 has schema_hook => (
