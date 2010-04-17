@@ -3,7 +3,7 @@
 use Test::More;
 
 BEGIN {
-    plan skip_all => "DBD::SQLite and SQL::Translator are required" unless eval { require DBI; require DBD::SQLite; require SQL::Translator };
+    plan skip_all => "DBD::SQLite and SQL::Translator >= 0.11005 are required" unless eval "use DBI; use DBD::SQLite; use SQL::Translator 0.11005";
 }
 
 use Test::TempDir;

@@ -43,7 +43,7 @@ ok( $c{oi}[0], "extracted column" );
 is( $c{oi}[0], "vey", "column data" );
 
 SKIP: {
-    skip "SQL::Translator is required", 2 unless eval { require SQL::Translator };
+    skip "SQL::Translator >= 0.11005 is required", 2 unless eval "use SQL::Translator 0.11005";
 
     $b->deploy;
 
