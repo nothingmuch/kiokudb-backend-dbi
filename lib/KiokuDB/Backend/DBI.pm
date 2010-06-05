@@ -23,6 +23,8 @@ use KiokuDB::TypeMap::Entry::DBIC::Row;
 use KiokuDB::TypeMap::Entry::DBIC::ResultSourceHandle;
 use KiokuDB::TypeMap::Entry::DBIC::ResultSet;
 use KiokuDB::TypeMap::Entry::DBIC::Schema;
+use KiokuDB::TypeMap::Entry::DBIC::Row;
+use KiokuDB::Entry::DBIC::Row;
 
 use namespace::clean -except => 'meta';
 
@@ -557,7 +559,7 @@ sub get {
                 # multi column primary keys need 'find'
                 my $obj = $schema->resultset($rs_name)->find(@key) or die $err; # die to stop search
 
-                $entries{$id} = KiokuDB::Entry->new(
+                $entries{$id} = KiokuDB::Entry::DBIC::Row->new(
                     id    => $id,
                     class => ref($obj),
                     data  => $obj,
@@ -579,7 +581,7 @@ sub get {
 
                 my $obj = $rs->find($rs_keys->{$rs_name}[0]) or return;
 
-                $entries{$id} = KiokuDB::Entry->new(
+                $entries{$id} = KiokuDB::Entry::DBIC::Row->new(
                     id => $id,
                     class => ref($obj),
                     data => $obj,
@@ -599,7 +601,7 @@ sub get {
 
                 foreach my $obj ( @objs ) {
                     my $id = $pk_to_id{$obj->id};
-                    $entries{$id} = KiokuDB::Entry->new(
+                    $entries{$id} = KiokuDB::Entry::DBIC::Row->new(
                         id    => $id,
                         class => ref($obj),
                         data  => $obj,

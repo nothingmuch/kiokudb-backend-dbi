@@ -103,7 +103,6 @@ $dir->txn_do( scope => 1, body => sub {
     my $foo = Foo->new( obj => $row );
 
     $dir->insert( with_dbic => $foo );
-
 });
 
 is_deeply( [ $dir->live_objects->live_objects ], [], "no live objects" );
@@ -124,6 +123,16 @@ $dir->txn_do( scope => 1, body => sub {
 
     isa_ok( $foo, "DBIx::Class::Row" );
     is( $foo->id, 3, "ID" );
+
+    my $entry = $dir->live_objects->object_to_entry($foo);
+
+    isa_ok( $entry, "KiokuDB::Entry::DBIC::Row" );
+
+    is_deeply(
+        [ $entry->referenced_ids ],
+        [ $dir->object_to_id($foo->object) ],
+        "referenced IDs",
+    );
 });
 
 is_deeply( [ $dir->live_objects->live_objects ], [], "no live objects" );

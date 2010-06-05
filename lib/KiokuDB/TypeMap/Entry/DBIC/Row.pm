@@ -1,23 +1,15 @@
 package KiokuDB::TypeMap::Entry::DBIC::Row;
 use Moose;
 
-use JSON;
+use JSON qw(encode_json);
 use Scalar::Util qw(weaken);
 
 use namespace::autoclean;
 
 with qw(KiokuDB::TypeMap::Entry);
 
-has json => (
-    isa => "Object",
-    is  => "ro",
-    default => sub { JSON->new },
-);
-
 sub compile {
     my ( $self, $class ) = @_;
-
-    my $json = $self->json;
 
     return KiokuDB::TypeMap::Entry::Compiled->new(
         collapse_method => sub {
@@ -53,7 +45,7 @@ sub compile {
         id_method => sub {
             my ( $self, $object ) = @_;
 
-            return 'dbic:row:' . $json->encode([ $object->result_source->source_name, $object->id ]);
+            return 'dbic:row:' . encode_json([ $object->result_source->source_name, $object->id ]);
         },
         refresh_method => sub {
             my ( $linker, $object, $entry, @args ) = @_;
