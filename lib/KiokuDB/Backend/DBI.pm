@@ -37,6 +37,7 @@ with qw(
     KiokuDB::Backend::Role::Query::Simple
     KiokuDB::Backend::Role::Query::GIN
     KiokuDB::Backend::Role::Concurrency::POSIX
+    KiokuDB::Backend::Role::GC
     Search::GIN::Extract::Delegate
 );
 # KiokuDB::Backend::Role::TXN::Nested is not supported by many DBs
@@ -831,16 +832,26 @@ sub insert_entry {
     die "Insertion to the GIN index is handled implicitly";
 }
 
-sub tables_exist {
-    my $self = shift;
+sub _table_info {
+    my ( $self, $catalog, $schema, $table ) = @_;
 
     $self->dbh_do(sub {
         my ( $storage, $dbh ) = @_;
 
         my $filter = ( $self->storage->sqlt_type eq 'SQLite' ? '%' : '' );
 
-        return ( @{ $dbh->table_info($filter, $filter, 'entries', 'TABLE')->fetchall_arrayref } > 0 );
+        foreach my $arg ( $catalog, $schema, $table ) {
+            $arg = $filter unless defined $arg;
+        }
+
+        $dbh->table_info($catalog, $schema, $table, 'TABLE')->fetchall_arrayref;
     });
+}
+
+sub tables_exist {
+    my $self = shift;
+
+    return ( @{ $self->_table_info(undef, undef, 'entries') } > 0 );
 }
 
 sub create_tables {
@@ -871,6 +882,25 @@ sub DEMOLISH {
 
     if ( $self->has_storage ) {
         $self->storage->disconnect;
+    }
+}
+
+sub new_garbage_collector {
+    my ( $self, %args ) = @_;
+
+    if ( grep { $_ !~ /^(?:entries|gin_index)/ } map { $_->[2] } @{ $self->_table_info } ) {
+        die "\nRefusing to GC a database with additional tables.\n\nThis is ecause the root set and referencing scheme might be ambiguous (it's not yet clear what garbage collection should actually do on a mixed schema).\n";
+    } else {
+        my $cmd = $args{command};
+        my $class = $args{class} || $cmd ? $cmd->class : "KiokuDB::GC::Naive";
+
+        Class::MOP::load_class($class);
+
+        return $class->new(
+            %args,
+            backend => $self,
+            ( $cmd ? ( verbose => $cmd->verbose ) : $cmd ),
+        );
     }
 }
 
