@@ -252,6 +252,8 @@ sub _build_sql_abstract {
 sub insert {
     my ( $self, @entries ) = @_;
 
+    return unless @entries;
+
     $self->insert_rows( $self->entries_to_rows(@entries) );
 
     # hopefully we're in a transaction, otherwise this totally sucks
@@ -413,6 +415,8 @@ sub update_index {
 sub get {
     my ( $self, @ids ) = @_;
 
+    return unless @ids;
+
     my %entries;
 
     $self->dbh_do(sub {
@@ -420,13 +424,8 @@ sub get {
 
         my $sth;
 
-        if ( @ids ) {
-            $sth = $dbh->prepare_cached("SELECT id, data FROM entries WHERE id IN (" . join(", ", ('?') x @ids) . ")");
-            $sth->execute(@ids);
-        } else {
-            $sth = $dbh->prepare_cached("SELECT id, data FROM entries");
-            $sth->execute;
-        }
+        $sth = $dbh->prepare_cached("SELECT id, data FROM entries WHERE id IN (" . join(", ", ('?') x @ids) . ")");
+        $sth->execute(@ids);
 
         $sth->bind_columns( \my ( $id, $data ) );
 
@@ -449,10 +448,12 @@ sub get {
 sub delete {
     my ( $self, @ids_or_entries ) = @_;
 
+    return unless @ids_or_entries;
+
+    my @ids = map { ref($_) ? $_->id : $_ } @ids_or_entries;
+
     $self->dbh_do(sub {
         my ( $storage, $dbh ) = @_;
-
-        my @ids = map { ref($_) ? $_->id : $_ } @ids_or_entries;
 
         if ( $self->extract ) {
             # FIXME rely on cascade delete?
@@ -471,6 +472,8 @@ sub delete {
 
 sub exists {
     my ( $self, @ids ) = @_;
+
+    return unless @ids;
 
     my %entries;
 
