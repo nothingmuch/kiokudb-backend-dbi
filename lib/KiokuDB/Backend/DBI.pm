@@ -277,6 +277,26 @@ sub _build_sql_abstract {
     SQL::Abstract->new;
 }
 
+# use a Maybe so we can force undef in the builder
+has batch_size => (
+    isa => "Maybe[Int]",
+    is  => "ro",
+    lazy => 1,
+    builder => '_build_batch_size',
+);
+
+sub _build_batch_size {
+    my $self = shift;
+
+    if ($self->storage->sqlt_type eq 'SQLite') {
+        return 999;
+    } else {
+        return undef;
+    }
+}
+
+sub has_batch_size { defined shift->batch_size }
+
 sub register_handle {
     my ( $self, $kiokudb ) = @_;
 
@@ -392,11 +412,17 @@ sub insert_rows {
 
         if ( $self->extract ) {
             if ( my @ids = map { @{ $_->{id} || [] } } $insert, $update ) {
-                my $del_gin_sth = $dbh->prepare_cached("DELETE FROM gin_index WHERE id IN (" . join(", ", ('?') x @ids) . ")");
 
-                $del_gin_sth->execute(@ids);
+                my $batch_size = $self->batch_size || scalar(@ids);
 
-                $del_gin_sth->finish;
+                my @ids_copy = @ids;
+                while ( my @batch_ids = splice @ids_copy, 0, $batch_size ) {
+                    my $del_gin_sth = $dbh->prepare_cached("DELETE FROM gin_index WHERE id IN (" . join(", ", ('?') x @batch_ids) . ")");
+
+                    $del_gin_sth->execute(@batch_ids);
+
+                    $del_gin_sth->finish;
+                }
             }
         }
 
@@ -519,6 +545,8 @@ sub _group_dbic_keys {
 sub get {
     my ( $self, @rows_and_ids ) = @_;
 
+    return unless @rows_and_ids;
+
     my %entries;
 
     my ( $rows, $ids, $special ) = $self->_part_rows_and_ids(\@rows_and_ids);
@@ -527,21 +555,25 @@ sub get {
         $self->dbh_do(sub {
             my ( $storage, $dbh ) = @_;
 
-            my $sth;
+            my @ids_copy = @$ids;
 
-            $sth = $dbh->prepare_cached("SELECT id, data FROM entries WHERE id IN (" . join(", ", ('?') x @$ids) . ")");
-            $sth->execute(@$ids);
+            my $batch_size = $self->batch_size || scalar(@$ids);
 
-            $sth->bind_columns( \my ( $id, $data ) );
+            while ( my @batch_ids = splice(@ids_copy, 0, $batch_size) ) {
+                my $sth = $dbh->prepare_cached("SELECT id, data FROM entries WHERE id IN (" . join(", ", ('?') x @batch_ids) . ")");
+                $sth->execute(@batch_ids);
 
-            # not actually necessary but i'm keeping it around for reference:
-            #my ( $id, $data );
-            #use DBD::Pg qw(PG_BYTEA);
-            #$sth->bind_col(1, \$id);
-            #$sth->bind_col(2, \$data, { pg_type => PG_BYTEA });
+                $sth->bind_columns( \my ( $id, $data ) );
 
-            while ( $sth->fetch ) {
-                $entries{$id} = $data;
+                # not actually necessary but i'm keeping it around for reference:
+                #my ( $id, $data );
+                #use DBD::Pg qw(PG_BYTEA);
+                #$sth->bind_col(1, \$id);
+                #$sth->bind_col(2, \$data, { pg_type => PG_BYTEA });
+
+                while ( $sth->fetch ) {
+                    $entries{$id} = $data;
+                }
             }
         });
     }
@@ -635,16 +667,21 @@ sub delete {
     $self->dbh_do(sub {
         my ( $storage, $dbh ) = @_;
 
-        if ( $self->extract ) {
-            # FIXME rely on cascade delete?
-            my $sth = $dbh->prepare_cached("DELETE FROM gin_index WHERE id IN (" . join(", ", ('?') x @ids) . ")");
-            $sth->execute(@ids);
+        my $batch_size = $self->batch_size || scalar(@ids);
+
+        my @ids_copy = @ids;
+        while ( my @batch_ids = splice @ids_copy, 0, $batch_size ) {
+            if ( $self->extract ) {
+                # FIXME rely on cascade delete?
+                my $sth = $dbh->prepare_cached("DELETE FROM gin_index WHERE id IN (" . join(", ", ('?') x @batch_ids) . ")");
+                $sth->execute(@batch_ids);
+                $sth->finish;
+            }
+
+            my $sth = $dbh->prepare_cached("DELETE FROM entries WHERE id IN (" . join(", ", ('?') x @batch_ids) . ")");
+            $sth->execute(@batch_ids);
             $sth->finish;
         }
-
-        my $sth = $dbh->prepare_cached("DELETE FROM entries WHERE id IN (" . join(", ", ('?') x @ids) . ")");
-        $sth->execute(@ids);
-        $sth->finish;
     });
 
     return;
@@ -665,12 +702,17 @@ sub exists {
         $self->dbh_do(sub {
             my ( $storage, $dbh ) = @_;
 
-            my $sth = $dbh->prepare_cached("SELECT id FROM entries WHERE id IN (" . join(", ", ('?') x @$ids) . ")");
-            $sth->execute(@$ids);
+            my $batch_size = $self->batch_size || scalar(@$ids);
 
-            $sth->bind_columns( \( my $id ) );
+            my @ids_copy = @$ids;
+            while ( my @batch_ids = splice @ids_copy, 0, $batch_size ) {
+                my $sth = $dbh->prepare_cached("SELECT id FROM entries WHERE id IN (" . join(", ", ('?') x @batch_ids) . ")");
+                $sth->execute(@batch_ids);
 
-            $entries{$id} = 1 while $sth->fetch;
+                $sth->bind_columns( \( my $id ) );
+
+                $entries{$id} = 1 while $sth->fetch;
+            }
         });
     }
 
@@ -1131,6 +1173,16 @@ See L<DBIx::Class::Storage::DBI>.
 Defaults to
 
     { on_connect_call => $self->on_connect_call }
+
+=item batch_size
+
+SQL that deals with entries run in batches of the amount provided in
+C<batch_size>. If it is not provided, the statements will run in a single
+batch.
+
+This solves the issue with SQLite where lists can only handle 999
+elements at a time. C<batch_size> will be set to 999 by default if the
+driver in use is SQLite.
 
 =back
 
