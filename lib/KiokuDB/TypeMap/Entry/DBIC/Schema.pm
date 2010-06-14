@@ -22,6 +22,9 @@ sub compile {
                         return $collapser->make_entry(
                             %args,
                             data => undef,
+                            meta => {
+                                immortal => 1,
+                            },
                         );
                     } else {
                         croak("Referring to foreign DBIC schemas is unsupported");
@@ -35,7 +38,7 @@ sub compile {
 
             my $schema = $linker->backend->schema;
 
-            $linker->register_object( $entry => $schema );
+            $linker->register_object( $entry => $schema, immortal => 1 );
 
             return $schema;
         },

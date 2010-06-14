@@ -43,6 +43,16 @@ my $dir = KiokuDB->connect(
     'dbi:SQLite:dbname=:memory:',
     schema => "MyApp::DB",
     create => 1,
+    live_objects => {
+        clear_leaks => 1,
+        leak_tracker => sub {
+            my $i = $Test::Builder::Level || 1;
+            $i++ until (caller($i))[1] eq __FILE__;
+            local $Test::Builder::Level = $i + 2;
+            fail("no leaks");
+            diag("leaked @_"),
+        },
+    },
 );
 
 $dir->txn_do( scope => 1, body => sub {
@@ -103,7 +113,6 @@ $dir->txn_do( scope => 1, body => sub {
     my $foo = Foo->new( obj => $row );
 
     $dir->insert( with_dbic => $foo );
-
 });
 
 is_deeply( [ $dir->live_objects->live_objects ], [], "no live objects" );
@@ -200,8 +209,7 @@ $dir->txn_do( scope => 1, body => sub {
 });
 
 # FIXME register it as immutable
-is_deeply( [ $dir->live_objects->live_objects ], [ $dir->backend->schema ], "only schema in live objects" );
-$dir->live_objects->clear;
+is_deeply( [ $dir->live_objects->live_objects ], [], "no live objects" );
 
 $dir->txn_do( scope => 1, body => sub {
     my $foo = $dir->lookup("with_schema");
@@ -217,7 +225,6 @@ $dir->txn_do( scope => 1, body => sub {
     is( refaddr($schema), refaddr($dir->backend->schema), "schema restored" );
 });
 
-is_deeply( [ $dir->live_objects->live_objects ], [ $dir->backend->schema ], "only schema in live objects" );
-$dir->live_objects->clear;
+is_deeply( [ $dir->live_objects->live_objects ], [], "no live objects" );
 
 done_testing;
