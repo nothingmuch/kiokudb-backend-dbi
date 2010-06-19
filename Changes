@@ -1,4 +1,5 @@
-0.10
+1.10
+    - NOTE: this was supposed to be 0.10... oops
     - Added mysql_strict attribute, true by default, causes SQL's strict mode
       to be set
     - Now specifies 'longblob' instead of 'blob' as the type for the 'data'
