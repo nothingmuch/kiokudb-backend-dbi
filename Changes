@@ -1,3 +1,6 @@
+1.12
+    - Fix FLORA's botched upload ;-) (typo in dist.ini)
+
 1.11
     - Support for DBIx::Class integration (KiokuDB objects and DBIC rows can
       point to each other, DBIC resultsets can be serialized in KiokuDB)
