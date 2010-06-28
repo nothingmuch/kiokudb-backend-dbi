@@ -27,14 +27,22 @@ sub new {
 sub insert {
     my ( $self, @args ) = @_;
 
-    my $dir = $self->result_source->schema->kiokudb_handle;
+    my $schema = $self->result_source->schema;
+
+    my $g = $schema->txn_scope_guard;
+
+    my $dir = $schema->kiokudb_handle;
     my $lo = $dir->live_objects;
 
     if ( my @insert = grep { ref and not $lo->object_to_entry($_) } values %{ $self->{_kiokudb_column} } ) {
         $dir->insert(@insert);
     }
 
-    $self->next::method(@args);
+    my $ret = $self->next::method(@args);
+
+    $g->commit;
+
+    return $ret;
 }
 
 sub update {
@@ -53,12 +61,19 @@ sub update {
 sub store {
     my ( $self, @args ) = @_;
 
+    my $schema = $self->result_source->schema;
+
+    my $g = $schema->txn_scope_guard;
 
     if ( my @objects = grep { ref } values %{ $self->{_kiokudb_column} } ) {
-        $self->result_source->schema->kiokudb_handle->store(@objects);
+        $schema->kiokudb_handle->store(@objects);
     }
 
-    $self->insert_or_update;
+    my $ret = $self->insert_or_update;
+
+    $g->commit;
+
+    return $ret;
 }
 
 sub kiokudb_column {

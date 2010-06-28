@@ -324,6 +324,8 @@ sub insert {
 
     return unless @entries;
 
+    my $g = $self->schema->txn_scope_guard;
+
     $self->insert_rows( $self->entries_to_rows(@entries) );
 
     # hopefully we're in a transaction, otherwise this totally sucks
@@ -343,6 +345,8 @@ sub insert {
 
         $self->update_index(\%gin_index);
     }
+
+    $g->commit;
 }
 
 sub entries_to_rows {
@@ -407,6 +411,8 @@ sub entry_to_row {
 sub insert_rows {
     my ( $self, $insert, $update, $dbic ) = @_;
 
+    my $g = $self->schema->txn_scope_guard;
+
     $self->dbh_do(sub {
         my ( $storage, $dbh ) = @_;
 
@@ -456,6 +462,8 @@ sub insert_rows {
 
         $_->insert_or_update for @$dbic;
     });
+
+    $g->commit;
 }
 
 sub prepare_insert {
@@ -667,6 +675,8 @@ sub delete {
     $self->dbh_do(sub {
         my ( $storage, $dbh ) = @_;
 
+        my $g = $self->schema->txn_scope_guard;
+
         my $batch_size = $self->batch_size || scalar(@ids);
 
         my @ids_copy = @ids;
@@ -682,6 +692,8 @@ sub delete {
             $sth->execute(@batch_ids);
             $sth->finish;
         }
+
+        $g->commit;
     });
 
     return;
