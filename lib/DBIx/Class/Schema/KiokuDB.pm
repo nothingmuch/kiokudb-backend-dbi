@@ -139,9 +139,9 @@ Then load the L<DBIx::Class::KiokuDB> component into every table that wants to
 refer to arbitrary KiokuDB objects:
 
     package MyApp::DB::Result::Album;
-    use base qw(DBIx::Class);
+    use base qw(DBIx::Class::Core);
 
-    __PACKAGE__>load_components(qw(Core KiokuDB));
+    __PACKAGE__>load_components(qw(KiokuDB));
 
     __PACKAGE__->table('album');
 

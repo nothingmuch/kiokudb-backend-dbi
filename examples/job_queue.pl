@@ -54,7 +54,7 @@ use KiokuDB;
     package MyApp::DB::Result::Job;
     use base qw(DBIx::Class);
 
-    __PACKAGE__->load_components(qw(Core KiokuDB));
+    __PACKAGE__->load_components(qw(KiokuDB Core));
     __PACKAGE__->table('foo');
     __PACKAGE__->add_columns(
         id => { data_type => "integer" },
