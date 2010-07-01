@@ -25,6 +25,10 @@ sub kiokudb_handle {
         require KiokuDB;
         require KiokuDB::Backend::DBI;
 
+        croak "Can't vivify KiokuDB handle without KiokuDB schema bits. " .
+              "Add __PACKAGE__->define_kiokudb_schema() to your schema class"
+                  unless $self->kiokudb_entries_source_name;
+
         my $dir = KiokuDB->new(
             backend => my $backend = KiokuDB::Backend::DBI->new(
                 connected_schema => $self,
@@ -44,6 +48,10 @@ sub _kiokudb_handle {
     my ( $self, $handle ) = @_;
 
     croak "Can't call _kiokudb_handle on unconnected schema" unless ref $self;
+
+    croak "Can't vivify KiokuDB handle without KiokuDB schema bits. " .
+          "Add __PACKAGE__->define_kiokudb_schema() to your schema class"
+              unless $self->kiokudb_entries_source_name;
 
     if ( $self->{kiokudb_handle} ) {
         if ( refaddr($self->{kiokudb_handle}) != refaddr($handle) ) {
