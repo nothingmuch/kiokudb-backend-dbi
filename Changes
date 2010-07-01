@@ -1,3 +1,6 @@
+1.14
+    - documentation fixes
+
 1.13
     - fix ordered loading of DBIC Core component in example code
     - FOR UPDATE added to SELECT queries on MySQL, PG and Oracle
