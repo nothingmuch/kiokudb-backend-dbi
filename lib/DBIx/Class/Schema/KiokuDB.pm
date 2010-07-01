@@ -3,6 +3,8 @@ package DBIx::Class::Schema::KiokuDB;
 use strict;
 use warnings;
 
+use Carp qw(croak);
+
 use DBIx::Class::KiokuDB::EntryProxy;
 use DBIx::Class::ResultSource::Table;
 
@@ -14,13 +16,43 @@ use base qw(Class::Accessor::Grouped);
 
 __PACKAGE__->mk_group_accessors( inherited => "kiokudb_entries_source_name" );
 
-sub kiokudb_handle { shift->{kiokudb_handle} } # FIXME
+sub kiokudb_handle {
+    my $self = shift;
+
+    croak "Can't call kiokudb_handle on unconnected schema" unless ref $self;
+
+    unless ( $self->{kiokudb_handle} ) {
+        require KiokuDB;
+        require KiokuDB::Backend::DBI;
+
+        my $dir = KiokuDB->new(
+            backend => my $backend = KiokuDB::Backend::DBI->new(
+                connected_schema => $self,
+            ),
+        );
+
+        $backend->meta->get_attribute('schema')->_weaken_value($backend); # FIXME proper MOP api?
+
+        # not weak
+        $self->{kiokudb_handle} = $dir;
+    }
+
+    $self->{kiokudb_handle};
+}
 
 sub _kiokudb_handle {
     my ( $self, $handle ) = @_;
 
-    $self->{kiokudb_handle} = $handle;
-    weaken($self->{kiokudb_handle});
+    croak "Can't call _kiokudb_handle on unconnected schema" unless ref $self;
+
+    if ( $self->{kiokudb_handle} ) {
+        if ( refaddr($self->{kiokudb_handle}) != refaddr($handle) ) {
+            croak "KiokuDB directory already registered";
+        }
+    } else {
+        $self->{kiokudb_handle} = $handle;
+        weaken($self->{kiokudb_handle});
+    }
 
     return $handle;
 }
