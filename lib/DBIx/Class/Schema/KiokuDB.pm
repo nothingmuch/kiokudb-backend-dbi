@@ -224,6 +224,30 @@ Then you can freely refer to KiokuDB objects from your C<Album> class:
 This class provides the schema definition support code required for integrating
 an arbitrary L<DBIx::Class::Schema> with L<KiokuDB::Backend::DBI>.
 
+=head2 REUSING AN EXISTING DBIx::Class SCHEMA
+
+The example in the Synopis assumes that you want to first set up a
+L<KiokuDB> and than link that to some L<DBIx::Class> classes. Another
+use case is that you already have a configured L<DBIx::Class> Schema
+and want to tack L<KiokuDB> onto it.
+
+The trick here is to make sure to load the L<KiokuDB> schema using 
+C<< __PACKAGE__->define_kiokudb_schema() >> in your Schema class:
+
+    package MyApp::DB;
+    use base qw(DBIx::Class::Schema);
+
+    __PACKAGE__->load_components(qw(Schema::KiokuDB));
+    __PACKAGE__->define_kiokudb_schema();
+
+    __PAKCAGE__->load_namespaces;
+
+You can now get the L<KiokuDB> directory handle like so:
+
+    my $dir = $schema->kiokudb_handle;
+
+For a complete example take a look at F<t/autovivify_handle.t>.
+
 =head1 USAGE AND LIMITATIONS
 
 L<KiokuDB> managed objects may hold references to row objects, resultsets
