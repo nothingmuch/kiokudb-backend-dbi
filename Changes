@@ -1,3 +1,7 @@
+1.15
+    - Constructing a KiokuDB directory handle is no longer mandatory, you can
+      get it from the DBIC schema (domm, nothingmuch)
+
 1.14
     - documentation fixes
 
