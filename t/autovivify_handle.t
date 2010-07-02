@@ -44,6 +44,19 @@ BEGIN {
 my $sqlite = "dbi:SQLite:dbname=" . temp_root->file("db");
 my $schema = MyApp::DB->connect($sqlite);
 
+{
+    my $refaddr;
+
+    {
+        isa_ok( my $k = $schema->kiokudb_handle, "KiokuDB" );
+        $refaddr = refaddr($k);
+    }
+
+    {
+        is( refaddr($schema->kiokudb_handle), $refaddr, "KiokuDB handle not weak when autovivified" );
+    }
+}
+
 my $dir = $schema->kiokudb_handle;
 isa_ok( $dir, 'KiokuDB', 'got autovived directory handle from schema');
 $dir->backend->deploy;
@@ -67,7 +80,7 @@ $dir->txn_do( scope => 1, body => sub {
     my $fetch_again = $schema->resultset('Gaplonk')->find( $id );
     isa_ok( $fetch_again, 'MyApp::DB::Result::Gaplonk', 'got DBIC row object back' );
     is($fetch_again->name,'VOOMAROOMA','row->name');
-    
+
     my $object = $fetch_again->object;
     isa_ok( $object, 'Patawee' );
     is( $object->sproing, 'kalloon', 'object attribute' );

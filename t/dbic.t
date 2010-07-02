@@ -227,19 +227,4 @@ $dir->txn_do( scope => 1, body => sub {
 
 is_deeply( [ $dir->live_objects->live_objects ], [], "no live objects" );
 
-{
-    my $schema = MyApp::DB->connect('dbi:SQLite:dbname=:memory:');
-
-    my $refaddr;
-
-    {
-        isa_ok( my $k = $schema->kiokudb_handle, "KiokuDB" );
-        $refaddr = refaddr($k);
-    }
-
-    {
-        is( refaddr($schema->kiokudb_handle), $refaddr, "KiokuDB handle not weak when autovivified" );
-    }
-}
-
 done_testing;
