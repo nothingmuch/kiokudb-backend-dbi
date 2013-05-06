@@ -4,6 +4,7 @@ use strict;
 use warnings;
 
 use namespace::clean;
+use Croak 'confess'
 
 use base qw(DBIx::Class);
 
@@ -21,7 +22,7 @@ sub inflate_result {
 }
 
 sub new {
-    croak("Creating new rows via the result set makes no sense, insert them with KiokuDB::insert instead");
+    confess("Creating new rows via the result set makes no sense, insert them with KiokuDB::insert instead");
 }
 
 # ex: set sw=4 et:
